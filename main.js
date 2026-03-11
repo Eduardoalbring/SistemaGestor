@@ -13,7 +13,7 @@ function createWindow() {
     minHeight: 700,
     title: 'ElectriPRO',
     icon: path.join(__dirname, 'assets', 'icon.png'),
-    backgroundColor: '#0a0e1a',
+    backgroundColor: '#FFFFFF',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
