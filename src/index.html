@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ElectriPRO</title>
+  <link rel="stylesheet" href="./styles/main.css">
+</head>
+<body>
+  <!-- Title Bar -->
+  <div class="titlebar">
+    <div class="titlebar-title">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      ElectriPRO — Gestão Elétrica
+    </div>
+    <div class="titlebar-controls">
+      <button class="titlebar-btn" onclick="electronAPI.minimize()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/></svg>
+      </button>
+      <button class="titlebar-btn" onclick="electronAPI.maximize()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/></svg>
+      </button>
+      <button class="titlebar-btn close" onclick="electronAPI.close()">
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- App Shell -->
+  <div class="app">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar"></aside>
+
+    <!-- Main Content -->
+    <main class="main-content" id="main-content"></main>
+  </div>
+
+  <!-- Modal Container -->
+  <div class="modal-overlay" id="modal-overlay">
+    <div class="modal" id="modal-container"></div>
+  </div>
+
+  <!-- Toast Container -->
+  <div class="toast-container" id="toast-container"></div>
+
+  <!-- Scripts -->
+  <script src="./utils/helpers.js"></script>
+  <script src="./components/toast.js"></script>
+  <script src="./components/modal.js"></script>
+  <script src="./components/sidebar.js"></script>
+  <script src="./components/table.js"></script>
+  <script src="./pages/dashboard.js"></script>
+  <script src="./pages/clientes.js"></script>
+  <script src="./pages/orcamentos.js"></script>
+  <script src="./pages/servicos.js"></script>
+  <script src="./pages/materiais.js"></script>
+  <script>
+    // Initialize app
+    document.addEventListener('DOMContentLoaded', () => {
+      Sidebar.init();
+      Sidebar.navigate('dashboard');
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+{
+  "name": "electripro",
+  "version": "1.0.0",
+  "description": "ElectriPRO - Software de Gestão para Eletricistas",
+  "main": "main.js",
+  "scripts": {
+    "start": "start.bat",
+    "launch": "set ELECTRON_RUN_AS_NODE= && electron .",
+    "rebuild": "electron-rebuild"
+  },
+  "author": "ElectriPRO",
+  "license": "MIT",
+  "dependencies": {
+    "better-sqlite3": "^11.0.0",
+    "electron-rebuild": "^3.2.9"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7"
+  }
+}
