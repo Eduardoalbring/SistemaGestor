@@ -19,7 +19,7 @@ const Sidebar = {
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
       <div class="sidebar-brand">
-        <h1>⚡ ElectriPRO</h1>
+        <h1>⚡ Albring's LTDA</h1>
         <span>Gestão Elétrica</span>
       </div>
       <nav class="sidebar-nav">
@@ -33,7 +33,7 @@ const Sidebar = {
         `).join('')}
       </nav>
       <div class="sidebar-footer">
-        <p>ElectriPRO v1.0.0</p>
+        <p>Albring's LTDA v1.0.0</p>
       </div>
     `;
   },
