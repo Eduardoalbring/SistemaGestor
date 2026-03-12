@@ -194,12 +194,15 @@ const OrcamentosPage = {
             </div>
           </div>
           <div class="header-actions">
-            <span class="badge badge-${orc.status}" style="font-size: 0.8rem; padding: 6px 16px;">${Helpers.statusLabel(orc.status)}</span>
-            ${orc.status === 'rascunho' ? `<button class="btn btn-sm btn-secondary" onclick="OrcamentosPage.changeStatus(${orc.id}, 'enviado')">Marcar como Enviado</button>` : ''}
-            ${orc.status === 'enviado' ? `
-              <button class="btn btn-sm btn-success" onclick="OrcamentosPage.changeStatus(${orc.id}, 'aprovado')">Aprovar</button>
-              <button class="btn btn-sm btn-danger" onclick="OrcamentosPage.changeStatus(${orc.id}, 'rejeitado')">Rejeitar</button>
-            ` : ''}
+            <div class="status-change-group">
+              <span class="badge badge-${orc.status}" style="font-size: 0.8rem; padding: 6px 16px;">${Helpers.statusLabel(orc.status)}</span>
+              <select class="form-select status-select" onchange="OrcamentosPage.changeStatus(${orc.id}, this.value)" title="Alterar status">
+                <option value="rascunho" ${orc.status === 'rascunho' ? 'selected' : ''}>Rascunho</option>
+                <option value="enviado" ${orc.status === 'enviado' ? 'selected' : ''}>Enviado</option>
+                <option value="aprovado" ${orc.status === 'aprovado' ? 'selected' : ''}>Aprovado</option>
+                <option value="rejeitado" ${orc.status === 'rejeitado' ? 'selected' : ''}>Rejeitado</option>
+              </select>
+            </div>
             ${orc.status === 'aprovado' ? `<button class="btn btn-sm btn-primary" onclick="ServicosPage.openFormFromOrcamento(${orc.id}, ${orc.cliente_id})">Criar Ordem de Serviço</button>` : ''}
           </div>
         </div>
@@ -222,7 +225,7 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row">
+                <div class="item-row" data-item-id="${item.id}">
                   <input type="text" value="${item.descricao}" placeholder="Descrição do item"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)">
                   <input type="number" value="${item.quantidade}" placeholder="Qtd" min="0.01" step="0.01"
@@ -234,6 +237,9 @@ const OrcamentosPage = {
                     ${Helpers.formatCurrency(item.quantidade * item.valor_unitario)}
                   </div>
                   <div style="display: flex; gap: 4px;">
+                    <button class="material-btn" onclick="OrcamentosPage.searchMaterial(${item.id}, ${orc.id})" title="Buscar na lista de materiais">
+                      ${Helpers.icons.package} Material
+                    </button>
                     <button class="amazon-btn" onclick="OrcamentosPage.searchAmazon('${item.descricao.replace(/'/g, "\\'")}')" title="Buscar na Amazon">
                       ${Helpers.icons.shoppingCart} Amazon
                     </button>
@@ -340,6 +346,72 @@ const OrcamentosPage = {
   searchAmazon(term) {
     const url = Helpers.amazonSearchUrl(term);
     electronAPI.openExternal(url);
+  },
+
+  async searchMaterial(itemId, orcamentoId) {
+    const materiais = await electronAPI.materiais.listar({});
+
+    Modal.open(`
+      <div class="modal-header">
+        <h3>${Helpers.icons.package} Buscar Material</h3>
+        <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+      </div>
+      <div class="modal-body">
+        <div class="search-container" style="margin-bottom: var(--spacing-md);">
+          ${Helpers.icons.search}
+          <input type="text" class="search-input" id="material-search-input"
+                 placeholder="Pesquisar material..."
+                 oninput="OrcamentosPage._filterMaterialList(this.value)">
+        </div>
+        <div id="material-search-results" style="max-height: 360px; overflow-y: auto;">
+          ${materiais.length === 0
+            ? '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">Nenhum material cadastrado ainda</p>'
+            : materiais.map(m => `
+              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}'', ${m.valor_referencia})">
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; cursor: pointer; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
+                  <div>
+                    <div style="font-weight: 600; font-size: var(--font-size-sm);">${m.nome}</div>
+                    <div style="font-size: 0.75rem; color: var(--text-tertiary);">${Helpers.categoriaLabel(m.categoria)} · ${Helpers.unidadeLabel(m.unidade)}</div>
+                  </div>
+                  <div style="font-weight: 600; color: var(--accent-primary); font-size: var(--font-size-sm); white-space: nowrap; margin-left: 12px;">${Helpers.formatCurrency(m.valor_referencia)}</div>
+                </div>
+              </div>
+            `).join('')
+          }
+        </div>
+      </div>
+    `);
+  },
+
+  _filterMaterialList(query) {
+    const items = document.querySelectorAll('.material-search-item');
+    const q = query.toLowerCase();
+    items.forEach(el => {
+      el.style.display = el.dataset.nome.includes(q) ? '' : 'none';
+    });
+  },
+
+  async _selectMaterial(itemId, orcamentoId, nome, valor) {
+    Modal.close();
+    try {
+      // Find the item row and update inputs
+      const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+      if (container) {
+        const inputs = container.querySelectorAll('input');
+        inputs[0].value = nome;
+        inputs[2].value = valor;
+      }
+      await electronAPI.orcamentoItens.atualizar(itemId, {
+        descricao: nome,
+        quantidade: container ? parseFloat(container.querySelectorAll('input')[1].value) || 1 : 1,
+        valor_unitario: valor,
+        categoria: 'material'
+      });
+      Toast.success(`Material "${nome}" aplicado ao item`);
+      this.viewDetails(orcamentoId);
+    } catch (err) {
+      Toast.error('Erro ao aplicar material');
+    }
   },
 
   async changeStatus(id, status) {

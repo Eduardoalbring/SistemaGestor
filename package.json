@@ -1,20 +1,43 @@
 {
-  "name": "electripro",
+  "name": "albrings",
   "version": "1.0.0",
-  "description": "ElectriPRO - Software de Gestão para Eletricistas",
+  "description": "Albring's - Gestão para Eletricistas",
   "main": "main.js",
   "scripts": {
     "start": "start.bat",
     "launch": "set ELECTRON_RUN_AS_NODE= && electron .",
-    "rebuild": "electron-rebuild"
+    "rebuild": "electron-rebuild",
+    "dist": "electron-builder"
   },
-  "author": "ElectriPRO",
+  "author": "Albring's",
   "license": "MIT",
+  "build": {
+    "appId": "com.albrings.app",
+    "productName": "Albring's",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "files": [
+      "**/*",
+      "!dist/*",
+      "!start.bat",
+      "!test_electron.js"
+    ]
+  },
   "dependencies": {
     "better-sqlite3": "^11.0.0",
-    "electron-rebuild": "^3.2.9"
+    "dotenv": "^17.3.1",
+    "googleapis": "^171.4.0"
   },
   "devDependencies": {
-    "electron": "^31.7.7"
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "electron-packager": "^17.1.2",
+    "electron-rebuild": "^3.2.9"
   }
 }

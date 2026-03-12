@@ -279,10 +279,15 @@ const ServicosPage = {
             </div>
           </div>
           <div class="header-actions">
-            <span class="badge badge-${serv.status}" style="font-size: 0.8rem; padding: 6px 16px;">${Helpers.statusLabel(serv.status)}</span>
-            ${serv.status === 'pendente' ? `<button class="btn btn-sm btn-primary" onclick="ServicosPage.changeStatus(${serv.id}, 'em_andamento')">Iniciar Serviço</button>` : ''}
-            ${serv.status === 'em_andamento' ? `<button class="btn btn-sm btn-success" onclick="ServicosPage.changeStatus(${serv.id}, 'concluido')">Concluir</button>` : ''}
-            ${serv.status !== 'cancelado' && serv.status !== 'concluido' ? `<button class="btn btn-sm btn-danger" onclick="ServicosPage.changeStatus(${serv.id}, 'cancelado')">Cancelar</button>` : ''}
+            <div class="status-change-group">
+              <span class="badge badge-${serv.status}" style="font-size: 0.8rem; padding: 6px 16px;">${Helpers.statusLabel(serv.status)}</span>
+              <select class="form-select status-select" onchange="ServicosPage.changeStatus(${serv.id}, this.value)" title="Alterar status">
+                <option value="pendente" ${serv.status === 'pendente' ? 'selected' : ''}>Pendente</option>
+                <option value="em_andamento" ${serv.status === 'em_andamento' ? 'selected' : ''}>Em Andamento</option>
+                <option value="concluido" ${serv.status === 'concluido' ? 'selected' : ''}>Concluído</option>
+                <option value="cancelado" ${serv.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+              </select>
+            </div>
             <button class="btn btn-sm btn-secondary" onclick="ServicosPage.openForm(${serv.id})">${Helpers.icons.edit} Editar</button>
           </div>
         </div>

@@ -5,10 +5,14 @@ const Sidebar = {
 
   pages: [
     { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { id: 'agenda', label: 'Agenda', icon: 'calendar' },
     { id: 'clientes', label: 'Clientes', icon: 'clientes' },
     { id: 'orcamentos', label: 'Orçamentos', icon: 'orcamentos' },
     { id: 'servicos', label: 'Serviços', icon: 'servicos' },
+    { id: 'custos', label: 'Custos', icon: 'dollarSign' },
     { id: 'materiais', label: 'Materiais', icon: 'materiais' },
+    { id: 'metas', label: 'Metas e Compras', icon: 'package' },
+    { id: 'integracoes', label: 'Integrações', icon: 'externalLink' },
   ],
 
   init() {
@@ -46,10 +50,14 @@ const Sidebar = {
 
     switch (pageId) {
       case 'dashboard': DashboardPage.render(); break;
+      case 'agenda': AgendaPage.render(); break;
       case 'clientes': ClientesPage.render(); break;
       case 'orcamentos': OrcamentosPage.render(); break;
       case 'servicos': ServicosPage.render(); break;
+      case 'custos': CustosPage.render(); break;
       case 'materiais': MateriaisPage.render(); break;
+      case 'metas': MetasPage.render(); break;
+      case 'integracoes': IntegracoesPage.render(); break;
     }
   }
 };

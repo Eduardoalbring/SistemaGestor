@@ -59,5 +59,50 @@ contextBridge.exposeInMainWorld('electronAPI', {
   dashboard: {
     metricas: () => ipcRenderer.invoke('dashboard:metricas'),
     atividadesRecentes: () => ipcRenderer.invoke('dashboard:atividadesRecentes'),
+    metricasMensais: () => ipcRenderer.invoke('dashboard:metricasMensais'),
+  },
+
+  // Custos
+  custos: {
+    listar: (filtros) => ipcRenderer.invoke('custos:listar', filtros),
+    criar: (dados) => ipcRenderer.invoke('custos:criar', dados),
+    atualizar: (id, dados) => ipcRenderer.invoke('custos:atualizar', id, dados),
+    excluir: (id) => ipcRenderer.invoke('custos:excluir', id),
+    relatorio: () => ipcRenderer.invoke('custos:relatorio'),
+    marcarStatus: (id, status) => ipcRenderer.invoke('custos:marcarStatus', id, status),
+  },
+
+  // Custos Fixos (Despesas Obrigatórias)
+  custosFixos: {
+    listar: () => ipcRenderer.invoke('custosFixos:listar'),
+    criar: (dados) => ipcRenderer.invoke('custosFixos:criar', dados),
+    atualizar: (id, dados) => ipcRenderer.invoke('custosFixos:atualizar', id, dados),
+    excluir: (id) => ipcRenderer.invoke('custosFixos:excluir', id),
+  },
+
+  // Eventos / Agenda
+  eventos: {
+    listar: (filtros) => ipcRenderer.invoke('eventos:listar', filtros),
+    criar: (dados) => ipcRenderer.invoke('eventos:criar', dados),
+    atualizar: (id, dados) => ipcRenderer.invoke('eventos:atualizar', id, dados),
+    excluir: (id) => ipcRenderer.invoke('eventos:excluir', id),
+    proximos: (minutos) => ipcRenderer.invoke('eventos:proximos', minutos),
+    marcarNotificado: (id) => ipcRenderer.invoke('eventos:marcarNotificado', id),
+  },
+
+  // Google Calendar
+  google: {
+    isAuthenticated: () => ipcRenderer.invoke('google:isAuthenticated'),
+    login: () => ipcRenderer.invoke('google:login'),
+    logout: () => ipcRenderer.invoke('google:logout'),
+  },
+
+  // Metas
+  metas: {
+    listar: () => ipcRenderer.invoke('metas:listar'),
+    criar: (dados) => ipcRenderer.invoke('metas:criar', dados),
+    atualizar: (id, dados) => ipcRenderer.invoke('metas:atualizar', id, dados),
+    excluir: (id) => ipcRenderer.invoke('metas:excluir', id),
+    saldo: () => ipcRenderer.invoke('metas:saldo'),
   }
 });

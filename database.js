@@ -3,7 +3,7 @@ const path = require('path');
 
 class Database {
   constructor(userDataPath) {
-    const dbPath = path.join(userDataPath, 'electripro.db');
+    const dbPath = path.join(userDataPath, 'albrings.db');
     this.db = new SQLite(dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('foreign_keys = ON');
@@ -75,7 +75,65 @@ class Database {
         descricao TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
       );
+
+      CREATE TABLE IF NOT EXISTS custos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL DEFAULT 'materiais',
+        categoria TEXT DEFAULT 'outros',
+        descricao TEXT NOT NULL,
+        valor REAL NOT NULL DEFAULT 0,
+        data DATE NOT NULL,
+        observacoes TEXT,
+        status TEXT DEFAULT 'pago',
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS eventos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        descricao TEXT,
+        data_inicio DATETIME NOT NULL,
+        data_fim DATETIME NOT NULL,
+        cor TEXT DEFAULT '#2563EB',
+        notificado INTEGER DEFAULT 0,
+        google_event_id TEXT,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS metas (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        titulo TEXT NOT NULL,
+        valor_alvo REAL NOT NULL,
+        status TEXT DEFAULT 'pendente',
+        icone TEXT DEFAULT 'target',
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS custos_fixos (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        descricao TEXT NOT NULL,
+        valor REAL NOT NULL,
+        dia_vencimento INTEGER NOT NULL,
+        categoria TEXT DEFAULT 'outros',
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+
+    // Migrações seguras (adiciona colunas se não existirem)
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN status TEXT DEFAULT 'pago'").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE eventos ADD COLUMN google_event_id TEXT").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    // Roda verificação/geração de despesas fixas para o mês atual
+    try {
+      this.gerarCustosFixosDoMes();
+    } catch (e) {
+      console.error('Erro ao gerar custos fixos do mes:', e);
+    }
   }
 
   close() {
@@ -388,12 +446,19 @@ class Database {
       SELECT status, COUNT(*) as total FROM servicos GROUP BY status
     `).all();
 
+    const mesAtual = new Date().toISOString().slice(0, 7);
+    const custosMes = this.db.prepare(`
+      SELECT COALESCE(SUM(valor), 0) as total FROM custos 
+      WHERE strftime('%Y-%m', data) = ?
+    `).get(mesAtual).total;
+
     return {
       totalClientes,
       orcamentosPendentes,
       servicosAndamento,
       servicosConcluidos,
       faturamento,
+      custosMes,
       orcamentosPorStatus,
       servicosPorStatus
     };
@@ -420,6 +485,385 @@ class Database {
     return [...orcamentos, ...servicos, ...clientes]
       .sort((a, b) => new Date(b.criado_em) - new Date(a.criado_em))
       .slice(0, 10);
+  }
+
+  getMetricasMensais() {
+    const clientesPorMes = this.db.prepare(`
+      SELECT strftime('%Y-%m', criado_em) as mes, COUNT(*) as total
+      FROM clientes
+      WHERE criado_em >= date('now', '-12 months')
+      GROUP BY mes
+      ORDER BY mes DESC
+      LIMIT 12
+    `).all();
+
+    const faturamentoPorMes = this.db.prepare(`
+      SELECT strftime('%Y-%m', o.criado_em) as mes,
+        COALESCE(SUM(
+          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+          + o.mao_de_obra - o.desconto
+        ), 0) as total
+      FROM orcamentos o
+      WHERE o.status = 'aprovado'
+        AND o.criado_em >= date('now', '-12 months')
+      GROUP BY mes
+      ORDER BY mes DESC
+      LIMIT 12
+    `).all();
+
+    return { clientesPorMes, faturamentoPorMes };
+  }
+
+  // ============ CUSTOS ============
+  listarCustos(filtros = {}) {
+    let query = 'SELECT * FROM custos WHERE 1=1';
+    const params = [];
+
+    if (filtros.busca) {
+      query += ' AND (descricao LIKE ? OR categoria LIKE ? OR observacoes LIKE ?)';
+      const term = `%${filtros.busca}%`;
+      params.push(term, term, term);
+    }
+    if (filtros.tipo) {
+      query += ' AND tipo = ?';
+      params.push(filtros.tipo);
+    }
+    if (filtros.mes) {
+      query += " AND strftime('%Y-%m', data) = ?";
+      params.push(filtros.mes);
+    }
+    if (filtros.categoria) {
+      query += ' AND categoria = ?';
+      params.push(filtros.categoria);
+    }
+    if (filtros.status) {
+      query += ' AND status = ?';
+      params.push(filtros.status);
+    }
+
+    query += ' ORDER BY data DESC, criado_em DESC';
+    return this.db.prepare(query).all(...params);
+  }
+
+  criarCusto(dados) {
+    const stmt = this.db.prepare(`
+      INSERT INTO custos (tipo, categoria, descricao, valor, data, observacoes, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const ids = [];
+    const parcelas = parseInt(dados.parcelas) || 1;
+    const baseDate = new Date(dados.data);
+    const baseDescricao = dados.descricao;
+
+    this.db.transaction(() => {
+      for (let i = 0; i < parcelas; i++) {
+        const currentDate = new Date(baseDate.getFullYear(), baseDate.getMonth() + i, baseDate.getDate());
+        const dataStr = currentDate.toISOString().slice(0, 10);
+        const isParcelado = parcelas > 1;
+        const finalDesc = isParcelado ? `${baseDescricao} (${i+1}/${parcelas})` : baseDescricao;
+        
+        const result = stmt.run(
+          dados.tipo || 'materiais',
+          dados.categoria || 'outros',
+          finalDesc,
+          dados.valor || 0,
+          dataStr,
+          dados.observacoes || null,
+          dados.status || 'pago'
+        );
+        ids.push(result.lastInsertRowid);
+      }
+    })();
+
+    return { ids, ...dados };
+  }
+
+  atualizarCusto(id, dados) {
+    const stmt = this.db.prepare(`
+      UPDATE custos SET tipo=?, categoria=?, descricao=?, valor=?, data=?, observacoes=?, status=?
+      WHERE id=?
+    `);
+    stmt.run(
+      dados.tipo,
+      dados.categoria,
+      dados.descricao,
+      dados.valor,
+      dados.data,
+      dados.observacoes || null,
+      dados.status || 'pago',
+      id
+    );
+    return { id, ...dados };
+  }
+
+  marcarCustoStatus(id, status) {
+    this.db.prepare('UPDATE custos SET status = ? WHERE id = ?').run(status, id);
+    return { id, status };
+  }
+
+  excluirCusto(id) {
+    this.db.prepare('DELETE FROM custos WHERE id = ?').run(id);
+    return { success: true };
+  }
+
+  // ============ CUSTOS FIXOS (Recorrentes) ============
+  listarCustosFixos() {
+    return this.db.prepare('SELECT * FROM custos_fixos ORDER BY dia_vencimento ASC').all();
+  }
+
+  criarCustoFixo(dados) {
+    const stmt = this.db.prepare(`
+      INSERT INTO custos_fixos (descricao, valor, dia_vencimento, categoria)
+      VALUES (?, ?, ?, ?)
+    `);
+    const result = stmt.run(dados.descricao, dados.valor, dados.dia_vencimento, dados.categoria || 'outros');
+    
+    // Na hora da criação, checa se precisa gerar pro mês atual
+    this.gerarCustosFixosDoMes();
+    return { id: result.lastInsertRowid, ...dados };
+  }
+
+  atualizarCustoFixo(id, dados) {
+    this.db.prepare(`
+      UPDATE custos_fixos SET descricao=?, valor=?, dia_vencimento=?, categoria=?
+      WHERE id=?
+    `).run(dados.descricao, dados.valor, dados.dia_vencimento, dados.categoria, id);
+    return { id, ...dados };
+  }
+
+  excluirCustoFixo(id) {
+    this.db.prepare('DELETE FROM custos_fixos WHERE id = ?').run(id);
+    return { success: true };
+  }
+
+  gerarCustosFixosDoMes() {
+    const todosFixos = this.listarCustosFixos();
+    if (todosFixos.length === 0) return;
+
+    const authMonth = new Date().toISOString().slice(0, 7); // ex: 2026-03
+    const insertStmt = this.db.prepare(`
+      INSERT INTO custos (tipo, categoria, descricao, valor, data, status, observacoes)
+      VALUES ('despesas', ?, ?, ?, ?, 'previsto', 'Lançamento Automático - Custo Fixo')
+    `);
+
+    // Checa se já existe o lançamento de cada custo fixo neste mês (baseado na descrição exata)
+    const getExistente = this.db.prepare(`
+      SELECT id FROM custos WHERE descricao = ? AND strftime('%Y-%m', data) = ?
+    `);
+
+    this.db.transaction(() => {
+      for (const fixo of todosFixos) {
+        const jaFoiLancado = getExistente.get(fixo.descricao, authMonth);
+        if (!jaFoiLancado) {
+          const diaFormatado = fixo.dia_vencimento.toString().padStart(2, '0');
+          // constroi a data pro mês atual, padronizado (ano-mes-dia)
+          let dataLancamento = `${authMonth}-${diaFormatado}`;
+          
+          insertStmt.run(
+            fixo.categoria,
+            fixo.descricao,
+            fixo.valor,
+            dataLancamento
+          );
+        }
+      }
+    })();
+  }
+
+  // ============ RELATÓRIO ============
+  getRelatorioCustos() {
+    // Summary per month for last 12 months
+    const porMes = this.db.prepare(`
+      SELECT strftime('%Y-%m', data) as mes,
+        tipo,
+        COUNT(*) as qtd,
+        SUM(valor) as total
+      FROM custos
+      WHERE data >= date('now', '-12 months')
+      GROUP BY mes, tipo
+      ORDER BY mes DESC
+    `).all();
+
+    // Current month totals
+    const mesAtual = new Date().toISOString().slice(0, 7);
+    const resumoMesAtual = this.db.prepare(`
+      SELECT tipo, SUM(valor) as total, COUNT(*) as qtd
+      FROM custos
+      WHERE strftime('%Y-%m', data) = ?
+      GROUP BY tipo
+    `).all(mesAtual);
+
+    // Top categories current month
+    const topCategorias = this.db.prepare(`
+      SELECT categoria, tipo, SUM(valor) as total, COUNT(*) as qtd
+      FROM custos
+      WHERE strftime('%Y-%m', data) = ? AND status = 'pago'
+      GROUP BY categoria, tipo
+      ORDER BY total DESC
+      LIMIT 10
+    `).all(mesAtual);
+
+    // Totais de previstos no mês
+    const previstosMesAtual = this.db.prepare(`
+      SELECT SUM(valor) as total, COUNT(*) as qtd
+      FROM custos
+      WHERE strftime('%Y-%m', data) = ? AND status = 'previsto'
+    `).get(mesAtual);
+
+    // Faturamento do mês atual (orçamentos aprovados)
+    const faturamentoMes = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+        + o.mao_de_obra - o.desconto
+      ), 0) as total
+      FROM orcamentos o
+      WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
+    `).get(mesAtual);
+
+    return {
+      porMes,
+      resumoMesAtual,
+      topCategorias,
+      previstosMesAtual: previstosMesAtual || { total: 0, qtd: 0 },
+      faturamentoMes: faturamentoMes?.total || 0,
+      mesAtual
+    };
+  }
+
+  // ============ EVENTOS (AGENDA) ============
+  listarEventos(filtros = {}) {
+    let query = 'SELECT * FROM eventos WHERE 1=1';
+    const params = [];
+
+    if (filtros.inicio && filtros.fim) {
+      query += ' AND (data_inicio BETWEEN ? AND ? OR data_fim BETWEEN ? AND ?)';
+      params.push(filtros.inicio, filtros.fim, filtros.inicio, filtros.fim);
+    }
+    
+    query += ' ORDER BY data_inicio ASC';
+    return this.db.prepare(query).all(...params);
+  }
+
+  getEventosProximos(minutos = 30) {
+    // Busca eventos que começam nos próximos X minutos e ainda não foram notificados
+    return this.db.prepare(`
+      SELECT * FROM eventos 
+      WHERE notificado = 0 
+      AND data_inicio > datetime('now', 'localtime')
+      AND data_inicio <= datetime('now', 'localtime', '+' || ? || ' minutes')
+    `).all(minutos);
+  }
+
+  marcarEventoNotificado(id) {
+    this.db.prepare('UPDATE eventos SET notificado = 1 WHERE id = ?').run(id);
+  }
+
+  criarEvento(dados) {
+    const stmt = this.db.prepare(`
+      INSERT INTO eventos (titulo, descricao, data_inicio, data_fim, cor, google_event_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      dados.titulo,
+      dados.descricao,
+      dados.data_inicio,
+      dados.data_fim,
+      dados.cor || '#2563EB',
+      dados.google_event_id || null
+    );
+    return { id: result.lastInsertRowid, ...dados };
+  }
+
+  atualizarEvento(id, dados) {
+    const stmt = this.db.prepare(`
+      UPDATE eventos SET titulo=?, descricao=?, data_inicio=?, data_fim=?, cor=?, notificado=?, google_event_id=?
+      WHERE id=?
+    `);
+    stmt.run(
+      dados.titulo,
+      dados.descricao,
+      dados.data_inicio,
+      dados.data_fim,
+      dados.cor,
+      dados.notificado || 0,
+      dados.google_event_id,
+      id
+    );
+    return { id, ...dados };
+  }
+
+  excluirEvento(id) {
+    this.db.prepare('DELETE FROM eventos WHERE id = ?').run(id);
+    return { success: true };
+  }
+
+  // ============ METAS ============
+  listarMetas() {
+    return this.db.prepare('SELECT * FROM metas ORDER BY status DESC, criado_em DESC').all();
+  }
+
+  criarMeta(dados) {
+    const stmt = this.db.prepare(`
+      INSERT INTO metas (titulo, valor_alvo, status, icone)
+      VALUES (?, ?, ?, ?)
+    `);
+    const result = stmt.run(
+      dados.titulo,
+      dados.valor_alvo,
+      dados.status || 'pendente',
+      dados.icone || 'target'
+    );
+    return { id: result.lastInsertRowid, ...dados };
+  }
+
+  atualizarMeta(id, dados) {
+    const stmt = this.db.prepare(`
+      UPDATE metas SET titulo=?, valor_alvo=?, status=?, icone=?
+      WHERE id=?
+    `);
+    stmt.run(
+      dados.titulo,
+      dados.valor_alvo,
+      dados.status,
+      dados.icone || 'target',
+      id
+    );
+    return { id, ...dados };
+  }
+
+  excluirMeta(id) {
+    this.db.prepare('DELETE FROM metas WHERE id = ?').run(id);
+    return { success: true };
+  }
+
+  getSaldoLivre() {
+    // Conta TODO o faturamento aprovado até hoje
+    const fat = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+        + o.mao_de_obra - o.desconto
+      ), 0) as total
+      FROM orcamentos o
+      WHERE o.status = 'aprovado'
+    `).get();
+
+    // Conta TODOS os custos já registrados
+    const custos = this.db.prepare('SELECT COALESCE(SUM(valor), 0) as total FROM custos').get();
+
+    // Conta TODAS as metas já concluídas (compradas)
+    const metas_compradas = this.db.prepare(`
+      SELECT COALESCE(SUM(valor_alvo), 0) as total FROM metas WHERE status = 'concluido'
+    `).get();
+
+    const saldo = (fat?.total || 0) - (custos?.total || 0) - (metas_compradas?.total || 0);
+
+    return { 
+      saldo, 
+      faturamento: fat?.total || 0, 
+      custos: custos?.total || 0,
+      metas_compradas: metas_compradas?.total || 0
+    };
   }
 }
 

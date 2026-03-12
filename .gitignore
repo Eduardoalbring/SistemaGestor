@@ -4,3 +4,4 @@ dist/
 *.db-journal
 *.db-wal
 test_electron.js
+.env

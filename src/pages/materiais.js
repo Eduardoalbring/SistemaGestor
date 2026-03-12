@@ -3,8 +3,8 @@
 const MateriaisPage = {
   filtros: { busca: '', categoria: '' },
 
-  categorias: [
-    { value: '', label: 'Todas' },
+  // Default categories (not removable)
+  defaultCategorias: [
     { value: 'fios_cabos', label: 'Fios e Cabos' },
     { value: 'disjuntores', label: 'Disjuntores' },
     { value: 'tomadas_interruptores', label: 'Tomadas/Interruptores' },
@@ -16,8 +16,33 @@ const MateriaisPage = {
     { value: 'outros', label: 'Outros' },
   ],
 
+  // Get custom categories from localStorage
+  getCustomCategorias() {
+    try {
+      return JSON.parse(localStorage.getItem('materiais_categorias_custom') || '[]');
+    } catch { return []; }
+  },
+
+  // Save custom categories to localStorage
+  saveCustomCategorias(cats) {
+    localStorage.setItem('materiais_categorias_custom', JSON.stringify(cats));
+  },
+
+  // All categories merged
+  get categorias() {
+    const custom = this.getCustomCategorias();
+    return [
+      { value: '', label: 'Todas' },
+      ...this.defaultCategorias,
+      ...custom
+    ];
+  },
+
   async render() {
     const content = document.getElementById('main-content');
+    const categorias = this.categorias;
+    const customCats = this.getCustomCategorias();
+
     content.innerHTML = `<div class="page-content fade-in">
       <div class="page-header">
         <div>
@@ -25,6 +50,9 @@ const MateriaisPage = {
           <p class="page-subtitle">Catálogo de materiais elétricos</p>
         </div>
         <div class="header-actions">
+          <button class="btn btn-secondary" onclick="MateriaisPage.openCategoryManager()">
+            ${Helpers.icons.settings} Categorias
+          </button>
           <button class="btn btn-primary" onclick="MateriaisPage.openForm()">
             ${Helpers.icons.plus} Novo Material
           </button>
@@ -38,7 +66,7 @@ const MateriaisPage = {
                    oninput="MateriaisPage.onSearch(this.value)">
           </div>
           <div class="table-filters" style="flex-wrap: wrap;">
-            ${this.categorias.map(c => `
+            ${categorias.map(c => `
               <button class="filter-chip ${this.filtros.categoria === c.value ? 'active' : ''}" 
                       onclick="MateriaisPage.filterCategoria('${c.value}')">${c.label}</button>
             `).join('')}
@@ -64,7 +92,7 @@ const MateriaisPage = {
     document.getElementById('materiais-table-body').innerHTML = Table.render({
       columns: [
         { label: 'Material', render: (r) => `<strong>${r.nome}</strong>` },
-        { label: 'Categoria', render: (r) => `<span class="badge badge-enviado">${Helpers.categoriaLabel(r.categoria)}</span>` },
+        { label: 'Categoria', render: (r) => `<span class="badge badge-enviado">${this._categoriaLabel(r.categoria)}</span>` },
         { label: 'Unidade', render: (r) => Helpers.unidadeLabel(r.unidade) },
         { label: 'Valor Ref.', render: (r) => Helpers.formatCurrency(r.valor_referencia) },
         {
@@ -86,6 +114,13 @@ const MateriaisPage = {
     });
   },
 
+  // Category label (includes custom cats)
+  _categoriaLabel(cat) {
+    const custom = this.getCustomCategorias().find(c => c.value === cat);
+    if (custom) return custom.label;
+    return Helpers.categoriaLabel(cat);
+  },
+
   onSearch: Helpers.debounce(function(value) {
     MateriaisPage.filtros.busca = value;
     MateriaisPage.loadData();
@@ -96,12 +131,93 @@ const MateriaisPage = {
     this.render();
   },
 
+  // ============ Category Manager ============
+  openCategoryManager() {
+    const customCats = this.getCustomCategorias();
+    Modal.open(`
+      <div class="modal-header">
+        <h3>${Helpers.icons.settings} Gerenciar Categorias</h3>
+        <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--spacing-md);">
+          Categorias padrão não podem ser removidas. Adicione categorias personalizadas abaixo.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">Categorias Padrão</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+            ${this.defaultCategorias.map(c => `
+              <span class="filter-chip" style="cursor: default; opacity: 0.7;">${c.label}</span>
+            `).join('')}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: var(--spacing-lg);">
+          <label class="form-label">Categorias Personalizadas</label>
+          <div id="custom-cats-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+            ${customCats.length === 0
+              ? '<p style="color: var(--text-tertiary); font-size: var(--font-size-sm);">Nenhuma categoria personalizada</p>'
+              : customCats.map((c, i) => `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="filter-chip active" style="pointer-events: none;">${c.label}</span>
+                  <button class="btn-icon" style="width:28px;height:28px;" 
+                          onclick="MateriaisPage._removeCustomCategory('${c.value}')" title="Remover">
+                    ${Helpers.icons.trash}
+                  </button>
+                </div>
+              `).join('')
+            }
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <input type="text" class="form-input" id="new-cat-name" 
+                   placeholder="Nome da nova categoria..." style="flex: 1;"
+                   onkeydown="if(event.key==='Enter') MateriaisPage._addCustomCategory()">
+            <button class="btn btn-primary" onclick="MateriaisPage._addCustomCategory()">
+              ${Helpers.icons.plus} Adicionar
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Modal.close()">Fechar</button>
+      </div>
+    `);
+  },
+
+  _addCustomCategory() {
+    const input = document.getElementById('new-cat-name');
+    const label = input.value.trim();
+    if (!label) return Toast.warning('Digite o nome da categoria');
+
+    const value = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!value) return Toast.warning('Nome inválido');
+
+    const cats = this.getCustomCategorias();
+    const allValues = [...this.defaultCategorias.map(c => c.value), ...cats.map(c => c.value)];
+    if (allValues.includes(value)) return Toast.warning('Categoria já existe');
+
+    cats.push({ value, label });
+    this.saveCustomCategorias(cats);
+    Toast.success(`Categoria "${label}" criada!`);
+    this.openCategoryManager(); // refresh modal
+  },
+
+  _removeCustomCategory(value) {
+    const cats = this.getCustomCategorias().filter(c => c.value !== value);
+    this.saveCustomCategorias(cats);
+    this.openCategoryManager(); // refresh modal
+    Toast.success('Categoria removida');
+  },
+
+  // ============ Form ============
   async openForm(id = null) {
     let material = null;
     if (id) {
       material = await electronAPI.materiais.buscar(id);
     }
     const isEdit = material !== null;
+    const allCats = [...this.defaultCategorias, ...this.getCustomCategorias()];
 
     Modal.open(`
       <div class="modal-header">
@@ -117,7 +233,7 @@ const MateriaisPage = {
           <div class="form-group">
             <label class="form-label">Categoria</label>
             <select class="form-select" id="mat-categoria">
-              ${this.categorias.filter(c => c.value).map(c => `
+              ${allCats.map(c => `
                 <option value="${c.value}" ${isEdit && material.categoria === c.value ? 'selected' : ''}>${c.label}</option>
               `).join('')}
             </select>

@@ -718,6 +718,7 @@ tr:last-child td {
 
 .table-actions {
   display: flex;
+  align-items: center;
   gap: var(--spacing-xs);
 }
 
@@ -1314,4 +1315,166 @@ tr:last-child td {
   .dashboard-grid {
     grid-template-columns: 1fr;
   }
+}
+
+/* ============ Status Change Group ============ */
+.status-change-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-select {
+  width: auto;
+  min-width: 140px;
+  padding: 6px 32px 6px 12px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+/* ============ Clickable Activity Items ============ */
+.activity-item-link {
+  cursor: pointer;
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+  border-radius: var(--radius-md);
+  position: relative;
+}
+
+.activity-item-link:hover {
+  background: var(--bg-tertiary);
+}
+
+.activity-arrow {
+  display: flex;
+  align-items: center;
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.activity-item-link:hover .activity-arrow {
+  opacity: 1;
+  color: var(--text-secondary);
+}
+
+/* ============ Material Button ============ */
+.material-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  background: #F0F7FF;
+  border: 1px solid #BFDBFE;
+  border-radius: var(--radius-sm);
+  color: #1D4ED8;
+  font-family: var(--font-family);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.material-btn:hover {
+  background: #DBEAFE;
+  border-color: #93C5FD;
+}
+
+/* ============ Dashboard Monthly Grid ============ */
+.dashboard-monthly-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-lg);
+  margin-top: var(--spacing-lg);
+}
+
+@media (max-width: 1200px) {
+  .dashboard-monthly-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============ Simple Table (Monthly Data) ============ */
+.simple-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--spacing-sm);
+}
+
+.simple-table th {
+  padding: 8px 12px;
+  font-size: var(--font-size-xs);
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border-color);
+  background: transparent;
+}
+
+.simple-table td {
+  padding: 10px 12px;
+  font-size: var(--font-size-sm);
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+}
+
+.simple-table tr:last-child td {
+  border-bottom: none;
+}
+
+.simple-table tr:hover td {
+  background: var(--bg-secondary);
+}
+
+/* ============ Google Integrations Page ============ */
+.integrations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--spacing-lg);
+  margin-top: var(--spacing-lg);
+}
+
+.integration-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  padding: var(--spacing-xl);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--spacing-md);
+  transition: var(--transition-base);
+}
+
+.integration-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-1px);
+}
+
+.integration-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.8rem;
+}
+
+.integration-card h3 {
+  font-size: var(--font-size-md);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.integration-card p {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.6;
 }
