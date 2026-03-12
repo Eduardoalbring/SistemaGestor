@@ -91,7 +91,8 @@ const ServicosPage = {
 
   async openForm(id = null) {
     const clientes = await electronAPI.clientes.listar({});
-    const orcamentos = await electronAPI.orcamentos.listar({ status: 'aprovado' });
+    // Carrega todos os orçamentos para permitir vincular qualquer um existente
+    const orcamentos = await electronAPI.orcamentos.listar({});
     let servico = null;
 
     if (id) {
@@ -115,18 +116,12 @@ const ServicosPage = {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Serviço Pai (OS vinculada)</label>
-            <input type="number" class="form-input" id="serv-pai-id" placeholder="ID do serviço pai" value="${isEdit && servico.servico_pai_id ? servico.servico_pai_id : ''}">
-            <small class="form-hint">Opcional. Use para vincular esta OS a outra já existente.</small>
+            <label class="form-label">Orçamento Vinculado</label>
+            <select class="form-select" id="serv-orcamento">
+              <option value="">Nenhum</option>
+              ${orcamentos.map(o => `<option value="${o.id}" ${isEdit && servico.orcamento_id === o.id ? 'selected' : ''}>${o.titulo} — ${o.cliente_nome}</option>`).join('')}
+            </select>
           </div>
-        </div>
-        <div class="form-group">
-          <label class="form-label">Orçamento Vinculado (fluxo antigo)</label>
-          <select class="form-select" id="serv-orcamento">
-            <option value="">Nenhum</option>
-            ${orcamentos.map(o => `<option value="${o.id}" ${isEdit && servico.orcamento_id === o.id ? 'selected' : ''}>${o.titulo} — ${o.cliente_nome}</option>`).join('')}
-          </select>
-          <small class="form-hint">Opcional. O orçamento inicial e adicionais agora são gerenciados dentro da tela de detalhes deste serviço.</small>
         </div>
         <div class="form-group">
           <label class="form-label">Título *</label>
@@ -191,7 +186,6 @@ const ServicosPage = {
             <label class="form-label">Orçamento Vinculado</label>
             <input type="text" class="form-input" value="${orc.titulo}" disabled>
             <input type="hidden" id="serv-orcamento" value="${orcamentoId}">
-            <input type="hidden" id="serv-pai-id" value="">
           </div>
         </div>
         <div class="form-group">
@@ -237,11 +231,9 @@ const ServicosPage = {
 
   async saveForm(id) {
     const budgetVal = document.getElementById('serv-orcamento').value;
-    const parentVal = document.getElementById('serv-pai-id') ? document.getElementById('serv-pai-id').value : '';
     const dados = {
       cliente_id: parseInt(document.getElementById('serv-cliente').value),
       orcamento_id: budgetVal ? parseInt(budgetVal) : null,
-      servico_pai_id: parentVal ? parseInt(parentVal) : null,
       titulo: document.getElementById('serv-titulo').value.trim(),
       descricao: document.getElementById('serv-descricao').value.trim(),
       prioridade: document.getElementById('serv-prioridade').value,
