@@ -3,11 +3,17 @@ const path = require('path');
 
 class Database {
   constructor(userDataPath) {
-    const dbPath = path.join(userDataPath, 'albrings.db');
-    this.db = new SQLite(dbPath);
-    this.db.pragma('journal_mode = WAL');
-    this.db.pragma('foreign_keys = ON');
-    this.init();
+    try {
+      const dbPath = path.join(userDataPath, 'albrings.db');
+      console.log('Iniciando banco de dados em:', dbPath);
+      this.db = new SQLite(dbPath);
+      this.db.pragma('journal_mode = WAL');
+      this.db.pragma('foreign_keys = ON');
+      this.init();
+    } catch (err) {
+      console.error('CRITICAL: Erro ao inicializar o banco de dados:', err);
+      throw err;
+    }
   }
 
   init() {
@@ -28,11 +34,13 @@ class Database {
       CREATE TABLE IF NOT EXISTS orcamentos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cliente_id INTEGER NOT NULL,
+        servico_id INTEGER,
         titulo TEXT NOT NULL,
         descricao TEXT,
         status TEXT DEFAULT 'rascunho',
         mao_de_obra REAL DEFAULT 0,
         desconto REAL DEFAULT 0,
+        tipo TEXT DEFAULT 'inicial',
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
@@ -50,6 +58,7 @@ class Database {
 
       CREATE TABLE IF NOT EXISTS servicos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
+        servico_pai_id INTEGER,
         orcamento_id INTEGER,
         cliente_id INTEGER NOT NULL,
         titulo TEXT NOT NULL,
@@ -63,6 +72,7 @@ class Database {
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         atualizado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE SET NULL,
+        FOREIGN KEY (servico_pai_id) REFERENCES servicos(id) ON DELETE SET NULL,
         FOREIGN KEY (cliente_id) REFERENCES clientes(id) ON DELETE CASCADE
       );
 
@@ -126,6 +136,20 @@ class Database {
 
     try {
       this.db.prepare("ALTER TABLE eventos ADD COLUMN google_event_id TEXT").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    // Novo relacionamento entre orçamentos e serviços
+    try {
+      this.db.prepare("ALTER TABLE orcamentos ADD COLUMN servico_id INTEGER").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE orcamentos ADD COLUMN tipo TEXT DEFAULT 'inicial'").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    // Relacionamento de hierarquia entre serviços (OS pai/filha)
+    try {
+      this.db.prepare("ALTER TABLE servicos ADD COLUMN servico_pai_id INTEGER").run();
     } catch (e) { /* Coluna já existe */ }
 
     // Roda verificação/geração de despesas fixas para o mês atual
@@ -214,6 +238,14 @@ class Database {
     if (filtros.cliente_id) {
       query += ' AND o.cliente_id = ?';
       params.push(filtros.cliente_id);
+    }
+    if (filtros.servico_id) {
+      query += ' AND o.servico_id = ?';
+      params.push(filtros.servico_id);
+    }
+    if (filtros.tipo) {
+      query += ' AND o.tipo = ?';
+      params.push(filtros.tipo);
     }
 
     query += ' ORDER BY o.criado_em DESC';
@@ -317,6 +349,10 @@ class Database {
       query += ' AND s.cliente_id = ?';
       params.push(filtros.cliente_id);
     }
+    if (filtros.servico_pai_id) {
+      query += ' AND s.servico_pai_id = ?';
+      params.push(filtros.servico_pai_id);
+    }
 
     query += ' ORDER BY s.criado_em DESC';
     return this.db.prepare(query).all(...params);
@@ -335,11 +371,16 @@ class Database {
 
   criarServico(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO servicos (orcamento_id, cliente_id, titulo, descricao, status, prioridade, data_inicio, data_fim, notas)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO servicos (servico_pai_id, orcamento_id, cliente_id, titulo, descricao, status, prioridade, data_inicio, data_fim, notas)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+    
+    // Safety check for orcamento_id
+    const orcamentoId = (dados.orcamento_id && !isNaN(parseInt(dados.orcamento_id))) ? parseInt(dados.orcamento_id) : null;
+
     const result = stmt.run(
-      dados.orcamento_id || null, dados.cliente_id, dados.titulo, dados.descricao,
+      dados.servico_pai_id || null,
+      orcamentoId, dados.cliente_id, dados.titulo, dados.descricao,
       dados.status || 'pendente', dados.prioridade || 'normal',
       dados.data_inicio || null, dados.data_fim || null, dados.notas || null
     );
@@ -348,12 +389,17 @@ class Database {
 
   atualizarServico(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE servicos SET orcamento_id=?, cliente_id=?, titulo=?, descricao=?, prioridade=?,
+      UPDATE servicos SET servico_pai_id=?, orcamento_id=?, cliente_id=?, titulo=?, descricao=?, prioridade=?,
         data_inicio=?, data_fim=?, notas=?, atualizado_em=CURRENT_TIMESTAMP
       WHERE id=?
     `);
+
+    // Safety check for orcamento_id
+    const orcamentoId = (dados.orcamento_id && !isNaN(parseInt(dados.orcamento_id))) ? parseInt(dados.orcamento_id) : null;
+
     stmt.run(
-      dados.orcamento_id || null, dados.cliente_id, dados.titulo, dados.descricao,
+      dados.servico_pai_id || null,
+      orcamentoId, dados.cliente_id, dados.titulo, dados.descricao,
       dados.prioridade || 'normal', dados.data_inicio || null, dados.data_fim || null,
       dados.notas || null, id
     );

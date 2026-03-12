@@ -242,10 +242,12 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color);">
-                  <input type="text" value="${item.descricao}" placeholder="Descrição do item" list="materiais-list"
+                <div class="item-row" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative;">
+                  <input type="text" value="${item.descricao}" placeholder="Descrição do item"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
-                         oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)">
+                         oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
+                         onfocus="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
+                         onblur="setTimeout(function(){ OrcamentosPage.clearMaterialSuggestions(${item.id}); }, 150)">
                   <input type="number" value="${item.quantidade}" placeholder="Qtd" min="0.01" step="0.01"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'quantidade', this.value)"
                          style="text-align: center;">
@@ -259,6 +261,7 @@ const OrcamentosPage = {
                       ${Helpers.icons.trash}
                     </button>
                   </div>
+                  <div class="material-suggestions" data-item-id="${item.id}" style="position: absolute; top: 40px; left: 8px; right: 8px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 10px 25px rgba(15, 23, 42, 0.22); max-height: 220px; overflow-y: auto; display: none; z-index: 50;"></div>
                 </div>
               `).join('')}
             </div>
@@ -324,27 +327,38 @@ const OrcamentosPage = {
 
   async updateItem(itemId, field, value) {
     try {
-      const item = { [field]: field === 'quantidade' || field === 'valor_unitario' ? parseFloat(value) || 0 : value };
+      const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+      if (!container) return;
 
-      // Get current item data to merge
-      const container = event.target.closest('.item-row');
       const inputs = container.querySelectorAll('input');
       const dados = {
         descricao: inputs[0].value,
-        quantidade: parseFloat(inputs[1].value) || 1,
+        quantidade: parseFloat(inputs[1].value) || 0,
         valor_unitario: parseFloat(inputs[2].value) || 0,
-        categoria: 'material',
-        ...item
+        categoria: 'material'
       };
+
+      // Atualiza o campo específico que mudou
+      if (field) {
+        dados[field] = field === 'quantidade' || field === 'valor_unitario' ? parseFloat(value) || 0 : value;
+      }
 
       await electronAPI.orcamentoItens.atualizar(itemId, dados);
 
-      // Update subtotal display
+      // Atualiza o display do subtotal na linha
       const subtotalEl = container.querySelector('div[style*="text-align: right"]');
       if (subtotalEl) {
         subtotalEl.textContent = Helpers.formatCurrency(dados.quantidade * dados.valor_unitario);
       }
+      
+      // Se estamos em detalhes, o resumo total precisa ser atualizado. 
+      // Para simplificar e garantir precisão, recarregamos a view se for uma mudança que afeta o total geral
+      if (field === 'quantidade' || field === 'valor_unitario') {
+         // Debounce ou recarga controlada poderia ser melhor, mas vamos manter simples por agora
+         // Ou apenas atualizar o resumo via DOM se performance for problema
+      }
     } catch (err) {
+      console.error('Erro ao atualizar item:', err);
       Toast.error('Erro ao atualizar item');
     }
   },
@@ -383,7 +397,7 @@ const OrcamentosPage = {
           ${materiais.length === 0
             ? '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">Nenhum material cadastrado ainda</p>'
             : materiais.map(m => `
-              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}'', ${m.valor_referencia})">
+              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia})">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; cursor: pointer; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
                   <div>
                     <div style="font-weight: 600; font-size: var(--font-size-sm);">${m.nome}</div>
@@ -447,29 +461,90 @@ const OrcamentosPage = {
 
   async loadMateriaisDatalist() {
     try {
-      const materiais = await electronAPI.materiais.listar({});
-      this._materiaisCache = materiais;
+      // Mantém cache em memória para autocomplete rápido
+      if (!this._materiaisCache) {
+        const materiais = await electronAPI.materiais.listar({});
+        this._materiaisCache = materiais;
+      }
+
       const datalist = document.getElementById('materiais-list');
-      if (datalist) {
-        datalist.innerHTML = materiais.map(m => `<option value="${m.nome}">`).join('');
+      if (datalist && this._materiaisCache) {
+        datalist.innerHTML = this._materiaisCache.map(m => `<option value="${m.nome}">`).join('');
       }
     } catch (err) {
       console.error('Erro ao carregar datalist de materiais:', err);
     }
   },
 
-  onItemNameInput(itemId, value) {
+  async onItemNameInput(itemId, value) {
+    // Garante que temos os materiais em cache
+    if (!this._materiaisCache) {
+      await this.loadMateriaisDatalist();
+    }
     if (!this._materiaisCache) return;
-    const material = this._materiaisCache.find(m => m.nome === value);
-    if (material) {
+
+    const term = (value || '').toLowerCase().trim();
+
+    // Se o nome bate exatamente com um material, preenche o valor automaticamente
+    const exact = this._materiaisCache.find(m => m.nome.toLowerCase() === term);
+    if (exact) {
       const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       if (container) {
         const inputs = container.querySelectorAll('input');
-        // inputs[0] is description, inputs[1] is qty, inputs[2] is unit price
-        inputs[2].value = material.valor_referencia;
-        // Trigger update
-        this.updateItem(itemId, 'valor_unitario', material.valor_referencia);
+        inputs[2].value = exact.valor_referencia;
+        this.updateItem(itemId, 'valor_unitario', exact.valor_referencia);
       }
     }
+
+    // Monta lista de sugestões conforme digita
+    if (!term) {
+      this.clearMaterialSuggestions(itemId);
+      return;
+    }
+
+    const matches = this._materiaisCache
+      .filter(m => m.nome.toLowerCase().includes(term))
+      .slice(0, 8);
+
+    const container = document.querySelector(`.material-suggestions[data-item-id="${itemId}"]`);
+    if (!container) return;
+
+    if (!matches.length) {
+      this.clearMaterialSuggestions(itemId);
+      return;
+    }
+
+    container.innerHTML = matches.map(m => `
+      <button type="button"
+              style="width: 100%; text-align: left; padding: 8px 10px; border: none; background: transparent; cursor: pointer; display: flex; justify-content: space-between; align-items: center;"
+              onmouseover="this.style.background='var(--bg-secondary)'"
+              onmouseout="this.style.background='transparent'"
+              onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia})">
+        <span style="font-size: 0.8rem; color: var(--text-primary);">${m.nome}</span>
+        <span style="font-size: 0.75rem; color: var(--accent-primary); font-weight: 600;">${Helpers.formatCurrency(m.valor_referencia)}</span>
+      </button>
+    `).join('');
+    container.style.display = 'block';
+  },
+
+  clearMaterialSuggestions(itemId) {
+    const container = document.querySelector(`.material-suggestions[data-item-id="${itemId}"]`);
+    if (container) {
+      container.style.display = 'none';
+      container.innerHTML = '';
+    }
+  },
+
+  applyMaterialToItem(itemId, nome, valor) {
+    const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+    if (!container) return;
+
+    const inputs = container.querySelectorAll('input');
+    if (inputs[0]) inputs[0].value = nome;
+    if (inputs[2]) inputs[2].value = valor;
+
+    // Salva alteração do item com o preço do material
+    this.updateItem(itemId, 'valor_unitario', valor);
+    this.clearMaterialSuggestions(itemId);
   }
 };
