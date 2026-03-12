@@ -54,7 +54,8 @@ class GoogleCalendarService {
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline', // Pede refresh_token para não pedir login toda hora
       scope: ['https://www.googleapis.com/auth/calendar.events'],
-      prompt: 'consent' // Garante que o refresh_token seja enviado
+      prompt: 'consent', // Garante que o refresh_token seja enviado
+      redirect_uri: this.redirectUri // Explicitamente incluir no auth url (previne erro 400 Missing redirect_uri)
     });
   }
 

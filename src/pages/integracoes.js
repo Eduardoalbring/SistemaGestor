@@ -31,13 +31,13 @@ const IntegracoesPage = {
           <div class="integration-icon">📊</div>
           <h3>Google Sheets</h3>
           <p>Exporte seus dados de clientes, orçamentos ou serviços para uma planilha Google.</p>
-          <button class="btn btn-primary" onclick="IntegracoesPage.exportarClientes()">
+          <button class="btn btn-primary" onclick="IntegracoesPage.abrirModalExportacao('clientes')">
             ${Helpers.icons.users} Exportar Clientes
           </button>
-          <button class="btn btn-secondary" onclick="IntegracoesPage.exportarOrcamentos()">
+          <button class="btn btn-secondary" onclick="IntegracoesPage.abrirModalExportacao('orcamentos')">
             ${Helpers.icons.fileText} Exportar Orçamentos
           </button>
-          <button class="btn btn-secondary" onclick="IntegracoesPage.exportarServicos()">
+          <button class="btn btn-secondary" onclick="IntegracoesPage.abrirModalExportacao('servicos')">
             ${Helpers.icons.wrench} Exportar Serviços
           </button>
         </div>
@@ -137,59 +137,149 @@ const IntegracoesPage = {
     Toast.success('Abrindo Google Calendar no navegador...');
   },
 
-  async exportarClientes() {
+  async abrirModalExportacao(tipo) {
     try {
       const clientes = await electronAPI.clientes.listar({});
-      const headers = ['Nome', 'Telefone', 'Email', 'Endereço', 'CPF/CNPJ', 'Tipo', 'Cadastrado em'];
-      const rows = clientes.map(c => [
-        c.nome, c.telefone || '', c.email || '', c.endereco || '',
-        c.cpf_cnpj || '', Helpers.tipoLabel(c.tipo), Helpers.formatDate(c.criado_em)
-      ]);
-      this._copiarCSV(headers, rows, 'Clientes');
+      let titulo = '';
+      if (tipo === 'orcamentos') titulo = 'Orçamentos';
+      else if (tipo === 'servicos') titulo = 'Serviços';
+      else titulo = 'Clientes';
+
+      Modal.open(`
+        <div class="modal-header">
+          <h3>📊 Exportar ${titulo}</h3>
+          <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group" id="container-filtro-cliente">
+            <label class="form-label">Filtrar por Cliente (Opcional)</label>
+            <select class="form-select" id="export-cliente-id">
+              <option value="">Todos os Clientes</option>
+              ${clientes.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')}
+            </select>
+          </div>
+          
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); margin-top: var(--spacing-md);">
+            <div class="form-group">
+              <label class="form-label">Data Inicial (Opcional)</label>
+              <input type="date" class="form-input" id="export-data-inicio">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Data Final (Opcional)</label>
+              <input type="date" class="form-input" id="export-data-fim">
+            </div>
+          </div>
+          <p style="font-size: var(--font-size-sm); color: var(--text-secondary); margin-top: 8px;">
+            Deixe vazio para exportar todos os registros (ou sem restrição de data).
+          </p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="IntegracoesPage.executarExportacao('${tipo}', 'csv')">
+            📄 CSV
+          </button>
+          <button class="btn btn-primary" onclick="IntegracoesPage.executarExportacao('${tipo}', 'pdf')">
+            📑 PDF
+          </button>
+        </div>
+      `);
+      
+      if (tipo === 'clientes') {
+        document.getElementById('container-filtro-cliente').style.display = 'none';
+      }
     } catch (err) {
-      Toast.error('Erro ao exportar clientes');
+      Toast.error('Erro ao abrir exportação: ' + err.message);
     }
   },
 
-  async exportarOrcamentos() {
+  async executarExportacao(tipo, formato) {
+    const clienteId = document.getElementById('export-cliente-id').value;
+    const dataInicio = document.getElementById('export-data-inicio').value;
+    const dataFim = document.getElementById('export-data-fim').value;
+
+    let filtros = {};
+    if (clienteId) filtros.cliente_id = parseInt(clienteId);
+
     try {
-      const orcamentos = await electronAPI.orcamentos.listar({});
-      const headers = ['Título', 'Cliente', 'Status', 'Mão de Obra', 'Desconto', 'Total', 'Criado em'];
-      const rows = orcamentos.map(o => {
-        const total = (o.total_itens || 0) + (o.mao_de_obra || 0) - (o.desconto || 0);
-        return [
-          o.titulo, o.cliente_nome, Helpers.statusLabel(o.status),
-          o.mao_de_obra, o.desconto, total, Helpers.formatDate(o.criado_em)
-        ];
-      });
-      this._copiarCSV(headers, rows, 'Orçamentos');
+      let data = [];
+      let headers = [];
+      let rows = [];
+      let title = '';
+      
+      const inicio = dataInicio ? new Date(dataInicio + 'T00:00:00') : null;
+      const fim = dataFim ? new Date(dataFim + 'T23:59:59') : null;
+
+      const dateFilter = (item) => {
+        const itemDateStr = item.criado_em || item.data_inicio || item.data;
+        if (!itemDateStr) return true;
+        
+        const itemDate = new Date(itemDateStr);
+        if (inicio && itemDate < inicio) return false;
+        if (fim && itemDate > fim) return false;
+        return true;
+      };
+
+      if (tipo === 'clientes') {
+        title = 'Clientes';
+        const lista = await electronAPI.clientes.listar({});
+        data = lista.filter(dateFilter);
+        
+        headers = ['Nome', 'Telefone', 'Email', 'Endereço', 'CPF/CNPJ', 'Tipo', 'Cadastrado em'];
+        rows = data.map(c => [
+          c.nome, c.telefone || '', c.email || '', c.endereco || '',
+          c.cpf_cnpj || '', Helpers.tipoLabel(c.tipo), Helpers.formatDate(c.criado_em)
+        ]);
+      } else if (tipo === 'orcamentos') {
+        title = 'Orçamentos';
+        const lista = await electronAPI.orcamentos.listar(filtros);
+        data = lista.filter(dateFilter);
+
+        headers = ['Título', 'Cliente', 'Status', 'Mão de Obra', 'Desconto', 'Total', 'Criado em'];
+        rows = data.map(o => {
+          const total = (o.total_itens || 0) + (o.mao_de_obra || 0) - (o.desconto || 0);
+          return [
+            o.titulo, o.cliente_nome, Helpers.statusLabel(o.status),
+            Helpers.formatCurrency ? Helpers.formatCurrency(o.mao_de_obra) : o.mao_de_obra,
+            Helpers.formatCurrency ? Helpers.formatCurrency(o.desconto) : o.desconto,
+            Helpers.formatCurrency ? Helpers.formatCurrency(total) : total,
+            Helpers.formatDate(o.criado_em)
+          ];
+        });
+      } else if (tipo === 'servicos') {
+        title = 'Serviços';
+        const lista = await electronAPI.servicos.listar(filtros);
+        data = lista.filter(dateFilter);
+
+        headers = ['Título', 'Cliente', 'Status', 'Prioridade', 'Início', 'Prazo', 'Criado em'];
+        rows = data.map(s => [
+          s.titulo, s.cliente_nome, Helpers.statusLabel(s.status),
+          Helpers.priorityLabel(s.prioridade), Helpers.formatDate(s.data_inicio),
+          Helpers.formatDate(s.data_fim), Helpers.formatDate(s.criado_em)
+        ]);
+      }
+
+      if (data.length === 0) {
+        Toast.warning('Nenhum dado encontrado com os filtros selecionados.');
+        return;
+      }
+
+      if (formato === 'csv') {
+        this._gerarCSV(headers, rows, title);
+      } else if (formato === 'pdf') {
+        this._gerarPDF(headers, rows, title);
+      }
+      
+      Modal.close();
     } catch (err) {
-      Toast.error('Erro ao exportar orçamentos');
+      Toast.error('Erro ao gerar exportação: ' + err.message);
     }
   },
 
-  async exportarServicos() {
-    try {
-      const servicos = await electronAPI.servicos.listar({});
-      const headers = ['Título', 'Cliente', 'Status', 'Prioridade', 'Início', 'Prazo', 'Criado em'];
-      const rows = servicos.map(s => [
-        s.titulo, s.cliente_nome, Helpers.statusLabel(s.status),
-        Helpers.priorityLabel(s.prioridade), Helpers.formatDate(s.data_inicio),
-        Helpers.formatDate(s.data_fim), Helpers.formatDate(s.criado_em)
-      ]);
-      this._copiarCSV(headers, rows, 'Serviços');
-    } catch (err) {
-      Toast.error('Erro ao exportar serviços');
-    }
-  },
-
-  _copiarCSV(headers, rows, nome) {
-    const bom = '\uFEFF'; // UTF-8 BOM for proper encoding in Excel/Sheets
+  _gerarCSV(headers, rows, nome) {
+    const bom = '\uFEFF'; 
     const csv = bom + [headers, ...rows]
       .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
       .join('\n');
 
-    // Use clipboard API
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -198,6 +288,66 @@ const IntegracoesPage = {
     a.click();
     URL.revokeObjectURL(url);
 
-    Toast.success(`${nome} exportados! Abra o arquivo .csv e importe no Google Sheets.`);
+    Toast.success(`${nome} exportado(s) com sucesso em CSV!`);
+  },
+
+  _gerarPDF(headers, rows, nome) {
+    Toast.success('Gerando PDF e abrindo impressão...');
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+    
+    setTimeout(() => {
+      const doc = iframe.contentWindow.document;
+      
+      let tableHtml = `
+        <table style="width: 100%; border-collapse: collapse; font-family: sans-serif; font-size: 12px;">
+          <thead>
+            <tr style="background-color: #f3f4f6; text-align: left;">
+              ${headers.map(h => `<th style="padding: 8px; border: 1px solid #e5e7eb;">${h}</th>`).join('')}
+            </tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>
+                ${row.map(cell => `<td style="padding: 8px; border: 1px solid #e5e7eb;">${cell || '-'}</td>`).join('')}
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Exportação ${nome}</title>
+          <style>
+            body { font-family: sans-serif; padding: 20px; color: #1f2937; }
+            h1 { font-size: 18px; margin-bottom: 20px; font-weight: bold; }
+            .header-info { margin-bottom: 20px; font-size: 12px; color: #6b7280; }
+          </style>
+        </head>
+        <body>
+          <h1>Relatório de ${nome}</h1>
+          <div class="header-info">Gerado em: ${new Date().toLocaleString()}</div>
+          ${tableHtml}
+        </body>
+        </html>
+      `;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => document.body.removeChild(iframe), 1000);
+      }, 500);
+    }, 100);
   }
 };
