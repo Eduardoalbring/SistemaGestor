@@ -53,7 +53,17 @@ const ServicosPage = {
       columns: [
         { label: 'Título', render: (r) => `<strong>${r.titulo}</strong>` },
         { label: 'Cliente', key: 'cliente_nome' },
-        { label: 'Status', render: (r) => `<span class="badge badge-${r.status}">${Helpers.statusLabel(r.status)}</span>` },
+        { 
+          label: 'Status', 
+          render: (r) => `
+            <select class="form-select status-select-mini bg-${r.status}" onchange="ServicosPage.changeStatus(${r.id}, this.value)" style="width: 120px; font-size: 0.75rem; padding: 4px 8px; height: auto;">
+                <option value="pendente" ${r.status === 'pendente' ? 'selected' : ''}>Pendente</option>
+                <option value="em_andamento" ${r.status === 'em_andamento' ? 'selected' : ''}>Em Andamento</option>
+                <option value="concluido" ${r.status === 'concluido' ? 'selected' : ''}>Concluído</option>
+                <option value="cancelado" ${r.status === 'cancelado' ? 'selected' : ''}>Cancelado</option>
+            </select>
+          `
+        },
         { label: 'Prioridade', render: (r) => `<span class="priority-${r.prioridade}">${Helpers.priorityLabel(r.prioridade)}</span>` },
         { label: 'Início', render: (r) => Helpers.formatDate(r.data_inicio) },
         { label: 'Prazo', render: (r) => Helpers.formatDate(r.data_fim) }
@@ -335,7 +345,12 @@ const ServicosPage = {
           </div>
           <div class="detail-item">
             <div class="detail-label">Orçamento</div>
-            <div class="detail-value">${serv.orcamento_titulo || 'Nenhum vinculado'}</div>
+            <div class="detail-value">
+              ${serv.orcamento_id 
+                ? `<a href="#" onclick="OrcamentosPage.viewDetails(${serv.orcamento_id})" style="color: var(--accent-primary); font-weight: 600; text-decoration: none;">${Helpers.icons.orcamentos} ${serv.orcamento_titulo}</a>` 
+                : 'Nenhum vinculado'
+              }
+            </div>
           </div>
         </div>
 
@@ -351,7 +366,12 @@ const ServicosPage = {
     try {
       await electronAPI.servicos.atualizarStatus(id, status);
       Toast.success(`Status atualizado para ${Helpers.statusLabel(status)}`);
-      this.viewDetails(id);
+      // check if we are in list or details
+      if (document.getElementById('servicos-table-body')) {
+        this.loadData();
+      } else {
+        this.viewDetails(id);
+      }
     } catch (err) {
       Toast.error('Erro ao atualizar status');
     }

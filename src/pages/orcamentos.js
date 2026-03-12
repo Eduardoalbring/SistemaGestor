@@ -53,7 +53,17 @@ const OrcamentosPage = {
       columns: [
         { label: 'Título', render: (r) => `<strong>${r.titulo}</strong>` },
         { label: 'Cliente', key: 'cliente_nome' },
-        { label: 'Status', render: (r) => `<span class="badge badge-${r.status}">${Helpers.statusLabel(r.status)}</span>` },
+        { 
+          label: 'Status', 
+          render: (r) => `
+            <select class="form-select status-select-mini bg-${r.status}" onchange="OrcamentosPage.changeStatus(${r.id}, this.value)" style="width: 120px; font-size: 0.75rem; padding: 4px 8px; height: auto;">
+                <option value="rascunho" ${r.status === 'rascunho' ? 'selected' : ''}>Rascunho</option>
+                <option value="enviado" ${r.status === 'enviado' ? 'selected' : ''}>Enviado</option>
+                <option value="aprovado" ${r.status === 'aprovado' ? 'selected' : ''}>Aprovado</option>
+                <option value="rejeitado" ${r.status === 'rejeitado' ? 'selected' : ''}>Rejeitado</option>
+            </select>
+          ` 
+        },
         {
           label: 'Total',
           render: (r) => {
@@ -217,6 +227,13 @@ const OrcamentosPage = {
                 ${Helpers.icons.plus} Adicionar Item
               </button>
             </div>
+            <div class="itens-header" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px 6px 0 0; font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">
+                <div>Nome / Descrição</div>
+                <div style="text-align: center;">Qtd.</div>
+                <div>Preço Unit.</div>
+                <div style="text-align: right;">Total</div>
+                <div></div>
+            </div>
             <div class="itens-list" id="orc-itens-list">
               ${orc.itens.length === 0 ? `
                 <div class="empty-state">
@@ -225,9 +242,10 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row" data-item-id="${item.id}">
-                  <input type="text" value="${item.descricao}" placeholder="Descrição do item"
-                         onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)">
+                <div class="item-row" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color);">
+                  <input type="text" value="${item.descricao}" placeholder="Descrição do item" list="materiais-list"
+                         onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
+                         oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)">
                   <input type="number" value="${item.quantidade}" placeholder="Qtd" min="0.01" step="0.01"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'quantidade', this.value)"
                          style="text-align: center;">
@@ -236,13 +254,7 @@ const OrcamentosPage = {
                   <div style="text-align: right; font-weight: 600; color: var(--text-primary); font-size: var(--font-size-sm); padding: 0 8px;">
                     ${Helpers.formatCurrency(item.quantidade * item.valor_unitario)}
                   </div>
-                  <div style="display: flex; gap: 4px;">
-                    <button class="material-btn" onclick="OrcamentosPage.searchMaterial(${item.id}, ${orc.id})" title="Buscar na lista de materiais">
-                      ${Helpers.icons.package} Material
-                    </button>
-                    <button class="amazon-btn" onclick="OrcamentosPage.searchAmazon('${item.descricao.replace(/'/g, "\\'")}')" title="Buscar na Amazon">
-                      ${Helpers.icons.shoppingCart} Amazon
-                    </button>
+                  <div style="display: flex; gap: 4px; justify-content: flex-end;">
                     <button class="btn-icon" style="width:28px;height:28px;" onclick="OrcamentosPage.removeItem(${item.id}, ${orc.id})" title="Remover">
                       ${Helpers.icons.trash}
                     </button>
@@ -250,6 +262,7 @@ const OrcamentosPage = {
                 </div>
               `).join('')}
             </div>
+            <datalist id="materiais-list"></datalist>
           </div>
 
           <div class="orcamento-summary">
@@ -285,6 +298,9 @@ const OrcamentosPage = {
           </div>
         </div>
       </div>`;
+
+      // Load materials for autocomplete
+      this.loadMateriaisDatalist();
     } catch (err) {
       Toast.error('Erro ao carregar orçamento');
       console.error(err);
@@ -418,9 +434,42 @@ const OrcamentosPage = {
     try {
       await electronAPI.orcamentos.atualizarStatus(id, status);
       Toast.success(`Status atualizado para ${Helpers.statusLabel(status)}`);
-      this.viewDetails(id);
+      // check if we are in list or details
+      if (document.getElementById('orc-table-body')) {
+        this.loadData();
+      } else {
+        this.viewDetails(id);
+      }
     } catch (err) {
       Toast.error('Erro ao atualizar status');
+    }
+  },
+
+  async loadMateriaisDatalist() {
+    try {
+      const materiais = await electronAPI.materiais.listar({});
+      this._materiaisCache = materiais;
+      const datalist = document.getElementById('materiais-list');
+      if (datalist) {
+        datalist.innerHTML = materiais.map(m => `<option value="${m.nome}">`).join('');
+      }
+    } catch (err) {
+      console.error('Erro ao carregar datalist de materiais:', err);
+    }
+  },
+
+  onItemNameInput(itemId, value) {
+    if (!this._materiaisCache) return;
+    const material = this._materiaisCache.find(m => m.nome === value);
+    if (material) {
+      const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
+      if (container) {
+        const inputs = container.querySelectorAll('input');
+        // inputs[0] is description, inputs[1] is qty, inputs[2] is unit price
+        inputs[2].value = material.valor_referencia;
+        // Trigger update
+        this.updateItem(itemId, 'valor_unitario', material.valor_referencia);
+      }
     }
   }
 };
