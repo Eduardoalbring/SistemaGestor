@@ -190,7 +190,9 @@ const OrcamentosPage = {
       const orc = await electronAPI.orcamentos.buscar(id);
       if (!orc) return Toast.error('Orçamento não encontrado');
 
-      const totalItens = orc.itens.reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
+      const totalItens = orc.itens
+        .filter(i => !i.comprado_pelo_cliente)
+        .reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
       const total = totalItens + (orc.mao_de_obra || 0) - (orc.desconto || 0);
 
       const content = document.getElementById('main-content');
@@ -227,11 +229,12 @@ const OrcamentosPage = {
                 ${Helpers.icons.plus} Adicionar Item
               </button>
             </div>
-            <div class="itens-header" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px 6px 0 0; font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">
+            <div class="itens-header" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px 6px 0 0; font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">
                 <div>Nome / Descrição</div>
                 <div style="text-align: center;">Qtd.</div>
                 <div>Preço Unit.</div>
                 <div style="text-align: right;">Total</div>
+                <div style="text-align: center;">Cliente</div>
                 <div></div>
             </div>
             <div class="itens-list" id="orc-itens-list">
@@ -242,7 +245,7 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 80px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative;">
+                <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
                   <input type="text" value="${item.descricao}" placeholder="Descrição do item"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
                          oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
@@ -253,8 +256,13 @@ const OrcamentosPage = {
                          style="text-align: center;">
                   <input type="number" value="${item.valor_unitario}" placeholder="Valor un." min="0" step="0.01"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'valor_unitario', this.value)">
-                  <div style="text-align: right; font-weight: 600; color: var(--text-primary); font-size: var(--font-size-sm); padding: 0 8px;">
+                  <div style="text-align: right; font-weight: 600; color: ${item.comprado_pelo_cliente ? 'var(--text-tertiary)' : 'var(--text-primary)'}; font-size: var(--font-size-sm); padding: 0 8px; ${item.comprado_pelo_cliente ? 'text-decoration: line-through;' : ''}">
                     ${Helpers.formatCurrency(item.quantidade * item.valor_unitario)}
+                  </div>
+                  <div style="display: flex; justify-content: center;">
+                    <input type="checkbox" style="width: 18px; height: 18px; cursor: pointer;" 
+                           ${item.comprado_pelo_cliente ? 'checked' : ''} 
+                           onchange="OrcamentosPage.updateItem(${item.id}, 'comprado_pelo_cliente', this.checked ? 1 : 0); OrcamentosPage.viewDetails(${orc.id})">
                   </div>
                   <div style="display: flex; gap: 4px; justify-content: flex-end;">
                     <button class="btn-icon" style="width:28px;height:28px;" onclick="OrcamentosPage.removeItem(${item.id}, ${orc.id})" title="Remover">
@@ -317,7 +325,8 @@ const OrcamentosPage = {
         descricao: 'Novo item',
         quantidade: 1,
         valor_unitario: 0,
-        categoria: 'material'
+        categoria: 'material',
+        comprado_pelo_cliente: 0
       });
       this.viewDetails(orcamentoId);
     } catch (err) {
@@ -335,6 +344,7 @@ const OrcamentosPage = {
         descricao: inputs[0].value,
         quantidade: parseFloat(inputs[1].value) || 0,
         valor_unitario: parseFloat(inputs[2].value) || 0,
+        comprado_pelo_cliente: inputs[3].checked ? 1 : 0,
         categoria: 'material'
       };
 

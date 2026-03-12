@@ -53,6 +53,7 @@ class Database {
         quantidade REAL DEFAULT 1,
         valor_unitario REAL DEFAULT 0,
         categoria TEXT DEFAULT 'material',
+        comprado_pelo_cliente INTEGER DEFAULT 0,
         FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE CASCADE
       );
 
@@ -95,7 +96,9 @@ class Database {
         data DATE NOT NULL,
         observacoes TEXT,
         status TEXT DEFAULT 'pago',
-        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
+        orcamento_item_id INTEGER,
+        criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (orcamento_item_id) REFERENCES orcamento_itens(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS eventos (
@@ -150,6 +153,15 @@ class Database {
     // Relacionamento de hierarquia entre serviços (OS pai/filha)
     try {
       this.db.prepare("ALTER TABLE servicos ADD COLUMN servico_pai_id INTEGER").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    // Novas colunas para controle de compras pelo cliente
+    try {
+      this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN comprado_pelo_cliente INTEGER DEFAULT 0").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN orcamento_item_id INTEGER").run();
     } catch (e) { /* Coluna já existe */ }
 
     // Roda verificação/geração de despesas fixas para o mês atual
@@ -219,7 +231,7 @@ class Database {
   listarOrcamentos(filtros = {}) {
     let query = `
       SELECT o.*, c.nome as cliente_nome,
-        (SELECT COALESCE(SUM(quantidade * valor_unitario), 0) FROM orcamento_itens WHERE orcamento_id = o.id) as total_itens
+        (SELECT COALESCE(SUM(quantidade * valor_unitario), 0) FROM orcamento_itens WHERE orcamento_id = o.id AND comprado_pelo_cliente = 0) as total_itens
       FROM orcamentos o
       LEFT JOIN clientes c ON o.cliente_id = c.id
       WHERE 1=1
@@ -300,25 +312,85 @@ class Database {
 
   criarItemOrcamento(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario, categoria)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario, categoria, comprado_pelo_cliente)
+      VALUES (?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(dados.orcamento_id, dados.descricao, dados.quantidade || 1, dados.valor_unitario || 0, dados.categoria || 'material');
-    return { id: result.lastInsertRowid };
+    const result = stmt.run(
+      dados.orcamento_id, 
+      dados.descricao, 
+      dados.quantidade || 1, 
+      dados.valor_unitario || 0, 
+      dados.categoria || 'material',
+      dados.comprado_pelo_cliente || 0
+    );
+    const itemId = result.lastInsertRowid;
+    this.syncCostFromItem(itemId, { ...dados, id: itemId });
+    return { id: itemId };
   }
 
   atualizarItemOrcamento(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE orcamento_itens SET descricao=?, quantidade=?, valor_unitario=?, categoria=?
+      UPDATE orcamento_itens SET descricao=?, quantidade=?, valor_unitario=?, categoria=?, comprado_pelo_cliente=?
       WHERE id=?
     `);
-    stmt.run(dados.descricao, dados.quantidade, dados.valor_unitario, dados.categoria, id);
+    stmt.run(
+      dados.descricao, 
+      dados.quantidade, 
+      dados.valor_unitario, 
+      dados.categoria, 
+      dados.comprado_pelo_cliente || 0,
+      id
+    );
+    this.syncCostFromItem(id, { ...dados, id });
     return { id, ...dados };
   }
 
   excluirItemOrcamento(id) {
+    // A FK constraints (ON DELETE CASCADE) no banco cuidará da exclusão na tabela 'custos' 
+    // se tivermos definido corretamente (adicionamos na migração).
     this.db.prepare('DELETE FROM orcamento_itens WHERE id = ?').run(id);
     return { success: true };
+  }
+
+  syncCostFromItem(itemId, itemData) {
+    // Se comprado pelo cliente, remove o custo se existir
+    if (itemData.comprado_pelo_cliente) {
+      this.db.prepare('DELETE FROM custos WHERE orcamento_item_id = ?').run(itemId);
+      return;
+    }
+
+    // Se NÃO comprado pelo cliente, garante que existe o custo previsto
+    const orcamento = this.db.prepare(`
+      SELECT o.titulo, o.criado_em 
+      FROM orcamentos o 
+      JOIN orcamento_itens i ON i.orcamento_id = o.id 
+      WHERE i.id = ?
+    `).get(itemId);
+
+    if (!orcamento) return;
+
+    const valorTotal = itemData.quantidade * itemData.valor_unitario;
+    if (valorTotal <= 0) {
+      this.db.prepare('DELETE FROM custos WHERE orcamento_item_id = ?').run(itemId);
+      return;
+    }
+
+    const dataCusto = orcamento.criado_em.split(' ')[0]; // YYYY-MM-DD
+    const descricaoCusto = `[Orç: ${orcamento.titulo}] ${itemData.descricao}`;
+
+    const custoExistente = this.db.prepare('SELECT id FROM custos WHERE orcamento_item_id = ?').get(itemId);
+
+    if (custoExistente) {
+      this.db.prepare(`
+        UPDATE custos SET descricao=?, valor=?, data=?, status='previsto'
+        WHERE orcamento_item_id=?
+      `).run(descricaoCusto, valorTotal, dataCusto, itemId);
+    } else {
+      this.db.prepare(`
+        INSERT INTO custos (tipo, categoria, descricao, valor, data, status, orcamento_item_id)
+        VALUES ('materiais', 'outros', ?, ?, ?, 'previsto', ?)
+      `).run(descricaoCusto, valorTotal, dataCusto, itemId);
+    }
   }
 
   // ============ SERVIÇOS ============
@@ -478,7 +550,7 @@ class Database {
 
     const faturamento = this.db.prepare(`
       SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
         + o.mao_de_obra - o.desconto
       ), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado'
@@ -546,7 +618,7 @@ class Database {
     const faturamentoPorMes = this.db.prepare(`
       SELECT strftime('%Y-%m', o.criado_em) as mes,
         COALESCE(SUM(
-          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
           + o.mao_de_obra - o.desconto
         ), 0) as total
       FROM orcamentos o
@@ -760,7 +832,7 @@ class Database {
     // Faturamento do mês atual (orçamentos aprovados)
     const faturamentoMes = this.db.prepare(`
       SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
         + o.mao_de_obra - o.desconto
       ), 0) as total
       FROM orcamentos o
