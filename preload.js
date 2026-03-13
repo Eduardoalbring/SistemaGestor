@@ -65,11 +65,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Custos
   custos: {
     listar: (filtros) => ipcRenderer.invoke('custos:listar', filtros),
+    buscar: (id) => ipcRenderer.invoke('custos:buscar', id),
     criar: (dados) => ipcRenderer.invoke('custos:criar', dados),
     atualizar: (id, dados) => ipcRenderer.invoke('custos:atualizar', id, dados),
     excluir: (id) => ipcRenderer.invoke('custos:excluir', id),
     relatorio: () => ipcRenderer.invoke('custos:relatorio'),
     marcarStatus: (id, status) => ipcRenderer.invoke('custos:marcarStatus', id, status),
+    historicoMensal: () => ipcRenderer.invoke('custos:historicoMensal'),
   },
 
   // Custos Fixos (Despesas Obrigatórias)

@@ -215,8 +215,12 @@ const OrcamentosPage = {
                 <option value="rejeitado" ${orc.status === 'rejeitado' ? 'selected' : ''}>Rejeitado</option>
               </select>
             </div>
-            ${orc.status === 'aprovado' ? `<button class="btn btn-sm btn-primary" onclick="ServicosPage.openFormFromOrcamento(${orc.id}, ${orc.cliente_id})">Criar Ordem de Serviço</button>` : ''}
+            ${orc.servico_id ? `<button class="btn btn-sm btn-secondary" onclick="ServicosPage.viewDetails(${orc.servico_id})">${Helpers.icons.wrench} Ver Serviço</button>` : ''}
           </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; margin-bottom: var(--spacing-md);">
+            <span class="badge badge-enviado">${orc.tipo === 'inicial' ? 'Orçamento Inicial' : 'Adicional de Execução'}</span>
         </div>
 
         ${orc.descricao ? `<div class="card" style="margin-bottom: var(--spacing-lg);"><p style="color: var(--text-secondary); font-size: var(--font-size-sm);">${orc.descricao}</p></div>` : ''}
@@ -245,7 +249,7 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
+                <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" data-material-id="${item.material_id || ''}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
                   <input type="text" value="${item.descricao}" placeholder="Descrição do item"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
                          oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
@@ -341,6 +345,7 @@ const OrcamentosPage = {
 
       const inputs = container.querySelectorAll('input');
       const dados = {
+        material_id: container.dataset.materialId ? parseInt(container.dataset.materialId) : null,
         descricao: inputs[0].value,
         quantidade: parseFloat(inputs[1].value) || 0,
         valor_unitario: parseFloat(inputs[2].value) || 0,
@@ -442,11 +447,13 @@ const OrcamentosPage = {
         inputs[2].value = valor;
       }
       await electronAPI.orcamentoItens.atualizar(itemId, {
+        material_id: id,
         descricao: nome,
         quantidade: container ? parseFloat(container.querySelectorAll('input')[1].value) || 1 : 1,
         valor_unitario: valor,
         categoria: 'material'
       });
+      if (container) container.dataset.materialId = id;
       Toast.success(`Material "${nome}" aplicado ao item`);
       this.viewDetails(orcamentoId);
     } catch (err) {
@@ -529,9 +536,9 @@ const OrcamentosPage = {
               style="width: 100%; text-align: left; padding: 8px 10px; border: none; background: transparent; cursor: pointer; display: flex; justify-content: space-between; align-items: center;"
               onmouseover="this.style.background='var(--bg-secondary)'"
               onmouseout="this.style.background='transparent'"
-              onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia})">
+              onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.id})">
         <span style="font-size: 0.8rem; color: var(--text-primary);">${m.nome}</span>
-        <span style="font-size: 0.75rem; color: var(--accent-primary); font-weight: 600;">${Helpers.formatCurrency(m.valor_referencia)}</span>
+        <span style="font-size: 0.75rem; color: var(--accent-primary); font-weight: 600;">${Helpers.formatCurrency(m.preco_venda || m.valor_referencia)}</span>
       </button>
     `).join('');
     container.style.display = 'block';
@@ -545,13 +552,14 @@ const OrcamentosPage = {
     }
   },
 
-  applyMaterialToItem(itemId, nome, valor) {
+  applyMaterialToItem(itemId, nome, valor, materialId) {
     const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
     if (!container) return;
 
     const inputs = container.querySelectorAll('input');
     if (inputs[0]) inputs[0].value = nome;
     if (inputs[2]) inputs[2].value = valor;
+    if (materialId) container.dataset.materialId = materialId;
 
     // Salva alteração do item com o preço do material
     this.updateItem(itemId, 'valor_unitario', valor);

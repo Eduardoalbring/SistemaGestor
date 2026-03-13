@@ -139,9 +139,11 @@ ipcMain.handle('dashboard:metricasMensais', () => db.getMetricasMensais());
 ipcMain.handle('custos:listar', (_, filtros) => db.listarCustos(filtros));
 ipcMain.handle('custos:criar', (_, dados) => db.criarCusto(dados));
 ipcMain.handle('custos:atualizar', (_, id, dados) => db.atualizarCusto(id, dados));
+ipcMain.handle('custos:buscar', (_, id) => db.buscarCusto(id));
 ipcMain.handle('custos:excluir', (_, id) => db.excluirCusto(id));
 ipcMain.handle('custos:relatorio', () => db.getRelatorioCustos());
 ipcMain.handle('custos:marcarStatus', (_, id, status) => db.marcarCustoStatus(id, status));
+ipcMain.handle('custos:historicoMensal', () => db.getHistoricoMensalPagos());
 
 // ============ CUSTOS FIXOS ============
 ipcMain.handle('custosFixos:listar', () => db.listarCustosFixos());

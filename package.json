@@ -27,7 +27,8 @@
       "!dist/*",
       "!start.bat",
       "!test_electron.js"
-    ]
+    ],
+    "cscLink": null
   },
   "dependencies": {
     "better-sqlite3": "^11.0.0",

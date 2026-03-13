@@ -330,7 +330,7 @@ const AgendaPage = {
 
       </div>
       <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="AgendaPage.${isEdit ? 'viewEvento(AgendaPage.calendar.getEventById('+id+'))' : 'Modal.close()'}">Cancelar</button>
+        <button class="btn btn-secondary" onclick="${isEdit ? 'AgendaPage.viewEvento(AgendaPage.calendar.getEventById('+id+'))' : 'Modal.close()'}">Cancelar</button>
         <button class="btn btn-primary" onclick="AgendaPage.saveForm(${isEdit ? evento.id : 'null'})">
           ${Helpers.icons.check} ${isEdit ? 'Salvar Alterações' : 'Criar Evento'}
         </button>

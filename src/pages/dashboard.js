@@ -184,6 +184,22 @@ const DashboardPage = {
           }
         </div>
       </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">${Helpers.icons.dollarSign} Despesas por Mês (Pagas)</span>
+        </div>
+        <div class="monthly-table">
+          ${mensais.custosPorMes?.length === 0
+            ? '<p style="color: var(--text-tertiary); text-align: center; padding: 1rem; font-size: var(--font-size-sm);">Sem dados ainda</p>'
+            : `<table class="simple-table">
+                <thead><tr><th>Mês</th><th style="text-align:right;">Total Pago</th></tr></thead>
+                <tbody>
+                  ${mensais.custosPorMes.map(r => `<tr><td>${mesesLabel(r.mes)}</td><td style="text-align:right;"><strong style="color:var(--color-danger);">${Helpers.formatCurrency(r.total)}</strong></td></tr>`).join('')}
+                </tbody>
+              </table>`
+          }
+        </div>
+      </div>
     `;
   }
 };

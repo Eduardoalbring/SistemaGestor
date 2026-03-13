@@ -23,6 +23,18 @@ const MateriaisPage = {
     } catch { return []; }
   },
 
+  // Get deleted default categories
+  getDeletedDefaultCategorias() {
+    try {
+      return JSON.parse(localStorage.getItem('materiais_categorias_deleted_defaults') || '[]');
+    } catch { return []; }
+  },
+
+  // Save deleted default categories
+  saveDeletedDefaultCategorias(cats) {
+    localStorage.setItem('materiais_categorias_deleted_defaults', JSON.stringify(cats));
+  },
+
   // Save custom categories to localStorage
   saveCustomCategorias(cats) {
     localStorage.setItem('materiais_categorias_custom', JSON.stringify(cats));
@@ -31,9 +43,12 @@ const MateriaisPage = {
   // All categories merged
   get categorias() {
     const custom = this.getCustomCategorias();
+    const deletedDefaults = this.getDeletedDefaultCategorias();
+    const activeDefaults = this.defaultCategorias.filter(c => !deletedDefaults.includes(c.value));
+    
     return [
       { value: '', label: 'Todas' },
-      ...this.defaultCategorias,
+      ...activeDefaults,
       ...custom
     ];
   },
@@ -94,12 +109,29 @@ const MateriaisPage = {
         { label: 'Material', render: (r) => `<strong>${r.nome}</strong>` },
         { label: 'Categoria', render: (r) => `<span class="badge badge-enviado">${this._categoriaLabel(r.categoria)}</span>` },
         { label: 'Unidade', render: (r) => Helpers.unidadeLabel(r.unidade) },
-        { label: 'Valor Ref.', render: (r) => Helpers.formatCurrency(r.valor_referencia) },
+        { 
+          label: 'Performance', 
+          render: (r) => {
+            const lucro = (r.receita_total || 0) - (r.custo_total || 0);
+            const statusClass = lucro >= 0 ? 'text-success' : 'text-danger';
+            return `
+              <div class="perf-stats">
+                <div title="Vendido">${Helpers.icons.package} <strong>${r.total_vendido || 0}</strong> ${r.unidade}</div>
+                <div class="${statusClass}" title="Lucro/Prejuízo">
+                  <strong>${Helpers.formatCurrency(lucro)}</strong>
+                  <span style="font-size: 0.7rem; opacity: 0.7; display: block;">
+                    Rec: ${Helpers.formatCurrency(r.receita_total || 0)} | Custo: ${Helpers.formatCurrency(r.custo_total || 0)}
+                  </span>
+                </div>
+              </div>
+            `;
+          }
+        },
         {
           label: 'Amazon',
           render: (r) => `
             <button class="amazon-btn" onclick="MateriaisPage.searchAmazon('${r.nome.replace(/'/g, "\\'")}')">
-              ${Helpers.icons.shoppingCart} Buscar Preço ${Helpers.icons.externalLink}
+              ${Helpers.icons.shoppingCart} Buscar ${Helpers.icons.externalLink}
             </button>
           `
         }
@@ -146,10 +178,20 @@ const MateriaisPage = {
 
         <div class="form-group">
           <label class="form-label">Categorias Padrão</label>
-          <div style="display: flex; flex-wrap: wrap; gap: 6px;">
-            ${this.defaultCategorias.map(c => `
-              <span class="filter-chip" style="cursor: default; opacity: 0.7;">${c.label}</span>
-            `).join('')}
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${this.defaultCategorias.map(c => {
+              const isDeleted = this.getDeletedDefaultCategorias().includes(c.value);
+              return `
+                <div style="display: flex; align-items: center; gap: 4px; opacity: ${isDeleted ? '0.5' : '1'};">
+                  <span class="filter-chip ${!isDeleted ? 'active' : ''}" style="pointer-events: none;">${c.label}</span>
+                  <button class="btn-icon" style="width:24px;height:24px; font-size: 10px;" 
+                          onclick="MateriaisPage._toggleDefaultCategory('${c.value}')" 
+                          title="${isDeleted ? 'Restaurar' : 'Remover'}">
+                    ${isDeleted ? Helpers.icons.plus : Helpers.icons.trash}
+                  </button>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
 
@@ -210,6 +252,20 @@ const MateriaisPage = {
     Toast.success('Categoria removida');
   },
 
+  _toggleDefaultCategory(value) {
+    let deleted = this.getDeletedDefaultCategorias();
+    if (deleted.includes(value)) {
+      deleted = deleted.filter(v => v !== value);
+      Toast.success('Categoria restaurada');
+    } else {
+      deleted.push(value);
+      Toast.success('Categoria padrão ocultada');
+    }
+    this.saveDeletedDefaultCategorias(deleted);
+    this.openCategoryManager();
+    this.render(); // update chips in background
+  },
+
   // ============ Form ============
   async openForm(id = null) {
     let material = null;
@@ -252,10 +308,23 @@ const MateriaisPage = {
             </select>
           </div>
           <div class="form-group">
-            <label class="form-label">Valor Referência (R$)</label>
-            <input type="number" class="form-input" id="mat-valor" placeholder="0,00" step="0.01" value="${isEdit ? material.valor_referencia : '0'}">
+            <label class="form-label">Preço de Custo (R$)</label>
+            <input type="number" class="form-input" id="mat-custo" placeholder="0,00" step="0.01" 
+                   value="${isEdit ? material.preco_custo : '0'}" oninput="MateriaisPage.calcMargin()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Preço de Venda (R$)</label>
+            <input type="number" class="form-input" id="mat-venda" placeholder="0,00" step="0.01" 
+                   value="${isEdit ? material.preco_venda : '0'}" oninput="MateriaisPage.calcMargin()">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Margem (%)</label>
+            <div id="mat-margem-display" class="badge" style="display: block; text-align: center; padding: 10px; font-weight: 700; font-size: 1rem; background: var(--bg-secondary);">
+              0%
+            </div>
           </div>
         </div>
+        <script>setTimeout(() => MateriaisPage.calcMargin(), 100);</script>
         <div class="form-group">
           <label class="form-label">Descrição</label>
           <textarea class="form-textarea" id="mat-descricao" placeholder="Características do material...">${isEdit ? (material.descricao || '') : ''}</textarea>
@@ -275,7 +344,8 @@ const MateriaisPage = {
       nome: document.getElementById('mat-nome').value.trim(),
       categoria: document.getElementById('mat-categoria').value,
       unidade: document.getElementById('mat-unidade').value,
-      valor_referencia: parseFloat(document.getElementById('mat-valor').value) || 0,
+      preco_custo: parseFloat(document.getElementById('mat-custo').value) || 0,
+      preco_venda: parseFloat(document.getElementById('mat-venda').value) || 0,
       descricao: document.getElementById('mat-descricao').value.trim(),
     };
 
@@ -311,5 +381,21 @@ const MateriaisPage = {
   searchAmazon(term) {
     const url = Helpers.amazonSearchUrl(term);
     electronAPI.openExternal(url);
+  },
+
+  calcMargin() {
+    const custo = parseFloat(document.getElementById('mat-custo').value) || 0;
+    const venda = parseFloat(document.getElementById('mat-venda').value) || 0;
+    const display = document.getElementById('mat-margem-display');
+    if (!display) return;
+
+    if (venda > 0) {
+      const margin = ((venda - custo) / venda) * 100;
+      display.textContent = `${margin.toFixed(1)}%`;
+      display.className = `badge ${margin >= 0 ? 'badge-aprovado' : 'badge-rejeitado'}`;
+    } else {
+      display.textContent = '0%';
+      display.className = 'badge';
+    }
   }
 };

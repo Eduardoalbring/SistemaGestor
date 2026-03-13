@@ -3,8 +3,8 @@
 const CustosPage = {
   filtros: { mes: new Date().toISOString().slice(0, 7), tipo: '', categoria: '' },
   
-  // Custom categories for expenses
-  categoriasDespesas: [
+  // Default categories for expenses
+  defaultCategorias: [
     { value: 'combustivel', label: 'Combustível' },
     { value: 'alimentacao', label: 'Alimentação' },
     { value: 'ferramentas', label: 'Ferramentas/Equip.' },
@@ -12,6 +12,33 @@ const CustosPage = {
     { value: 'marketing', label: 'Marketing' },
     { value: 'outros', label: 'Outros' }
   ],
+
+  getCustomCategorias() {
+    try {
+      return JSON.parse(localStorage.getItem('custos_categorias_custom') || '[]');
+    } catch { return []; }
+  },
+
+  saveCustomCategorias(cats) {
+    localStorage.setItem('custos_categorias_custom', JSON.stringify(cats));
+  },
+
+  getDeletedDefaultCategorias() {
+    try {
+      return JSON.parse(localStorage.getItem('custos_categorias_deleted_defaults') || '[]');
+    } catch { return []; }
+  },
+
+  saveDeletedDefaultCategorias(cats) {
+    localStorage.setItem('custos_categorias_deleted_defaults', JSON.stringify(cats));
+  },
+
+  get categorias() {
+    const custom = this.getCustomCategorias();
+    const deletedDefaults = this.getDeletedDefaultCategorias();
+    const activeDefaults = this.defaultCategorias.filter(c => !deletedDefaults.includes(c.value));
+    return [...activeDefaults, ...custom];
+  },
 
   async render() {
     const content = document.getElementById('main-content');
@@ -22,8 +49,14 @@ const CustosPage = {
           <p class="page-subtitle">Gestão de gastos com materiais e despesas do negócio</p>
         </div>
         <div class="header-actions">
+          <button class="btn btn-secondary" onclick="CustosPage.openCategoryManager()">
+            ${Helpers.icons.settings || '⚙️'} Categorias
+          </button>
           <button class="btn btn-secondary" onclick="CustosPage.openFixosManager()">
             ${Helpers.icons.settings || '⚙️'} Despesas Fixas
+          </button>
+          <button class="btn btn-secondary" onclick="CustosPage.openHistorico()">
+            ${Helpers.icons.clock || '🕒'} Histórico
           </button>
           <button class="btn btn-primary" onclick="CustosPage.openForm()">
             ${Helpers.icons.plus} Lançar Custo
@@ -47,7 +80,13 @@ const CustosPage = {
               <option value="">Todos os Tipos</option>
               <option value="materiais" ${this.filtros.tipo === 'materiais' ? 'selected' : ''}>Materiais</option>
               <option value="despesas" ${this.filtros.tipo === 'despesas' ? 'selected' : ''}>Despesas de Casa/Negócio</option>
+            </select>
             
+            <select class="form-select" id="filtro-categoria-custos" style="width: 180px; padding: 6px 10px;" onchange="CustosPage.filterCategoria(this.value)">
+              <option value="">Todas as Categorias</option>
+              <!-- Dynamic -->
+            </select>
+
             <select class="form-select" style="width: 140px; padding: 6px 10px;" onchange="CustosPage.filterStatus(this.value)">
               <option value="">Status: Todos</option>
               <option value="pago" ${this.filtros.status === 'pago' ? 'selected' : ''}>Já Pago</option>
@@ -71,10 +110,45 @@ const CustosPage = {
       
       this.renderResumo(relatorio);
       this.renderTable(custos);
+      this.updateCategoriaFilter();
     } catch (err) {
       console.error(err);
       Toast.error('Erro ao carregar custos');
     }
+  },
+
+  updateCategoriaFilter() {
+    const select = document.getElementById('filtro-categoria-custos');
+    if (!select) return;
+
+    const tipo = this.filtros.tipo;
+    const atual = this.filtros.categoria;
+    let options = '<option value="">Todas as Categorias</option>';
+
+    if (tipo === 'materiais') {
+      const cats = MateriaisPage.categorias.filter(c => c.value !== '');
+      options += cats.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+    } else if (tipo === 'despesas') {
+      options += this.categorias.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+    } else {
+      // Both or none
+      const all = [
+        ...MateriaisPage.categorias.filter(c => c.value !== ''),
+        ...this.categorias
+      ];
+      // Unique values
+      const unique = [];
+      const map = new Map();
+      for (const item of all) {
+        if(!map.has(item.value)){
+          map.set(item.value, true);
+          unique.push(item);
+        }
+      }
+      options += unique.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+    }
+
+    select.innerHTML = options;
   },
 
   renderResumo(relatorio) {
@@ -146,20 +220,23 @@ const CustosPage = {
       emptyMessage: 'Nenhum custo registrado neste período',
       emptyIcon: Helpers.icons.dollarSign,
       actions: (r) => `
-        ${r.status === 'previsto' ? `<button class="btn-icon" title="Marcar como Pago" style="color: var(--color-success);" onclick="CustosPage.marcarPago(${r.id})">${Helpers.icons.check}</button>` : ''}
+        ${r.status === 'previsto' 
+          ? `<button class="btn-icon" title="Marcar como Pago" style="color: var(--color-success);" onclick="CustosPage.trocarStatus(${r.id}, 'pago')">${Helpers.icons.check}</button>` 
+          : `<button class="btn-icon" title="Marcar como Pendente" style="color: var(--color-warning);" onclick="CustosPage.trocarStatus(${r.id}, 'previsto')">${Helpers.icons.clock || '🕒'}</button>`
+        }
         <button class="btn-icon" title="Editar" onclick="CustosPage.openForm(${r.id})">${Helpers.icons.edit}</button>
         <button class="btn-icon" title="Excluir" onclick="CustosPage.confirmDelete(${r.id}, '${r.descricao.replace(/'/g, "\\'")}')">${Helpers.icons.trash}</button>
       `
     });
   },
 
-  async marcarPago(id) {
+  async trocarStatus(id, novoStatus) {
     try {
-      await electronAPI.custos.marcarStatus(id, 'pago');
-      Toast.success('Marcado como pago!');
+      await electronAPI.custos.marcarStatus(id, novoStatus);
+      Toast.success(novoStatus === 'pago' ? 'Marcado como pago!' : 'Marcado como pendente');
       this.loadData();
     } catch (err) {
-      Toast.error('Erro ao marcar como pago');
+      Toast.error('Erro ao alterar status');
     }
   },
 
@@ -178,23 +255,26 @@ const CustosPage = {
     this.loadData();
   },
 
+  filterCategoria(cat) {
+    this.filtros.categoria = cat;
+    this.loadData();
+  },
+
   getCategoriaLabel(tipo, catValue) {
     if (tipo === 'materiais') {
-      return MateriaisPage.categorias.find(c => c.value === catValue)?.label || catValue;
+      return MateriaisPage._categoriaLabel(catValue);
     } else {
-      return this.categoriasDespesas.find(c => c.value === catValue)?.label || catValue;
+      const cat = this.categorias.find(c => c.value === catValue);
+      if (cat) return cat.label;
+      // Fallback for hidden defaults or custom ones not currently active
+      return Helpers.categoriaLabel(catValue);
     }
   },
 
   async openForm(id = null) {
     let custo = null;
     if (id) {
-      custo = await electronAPI.custos.buscar(id); // oops, we need to implement buscar in db or extract from list. Oh wait, get by ID wasn't implemented. I'll just find it from current list.
-      // Better approach: fetch from backend, but since we didn't add buscarCusto, we'll implement it or just search the current table.
-      // Easiest is to add no buscar, just list with id=id, or I'll implement buscarCusto quickly if needed.
-      // For now, let's just use the listing data directly or fetch it:
-      const todos = await electronAPI.custos.listar({});
-      custo = todos.find(c => c.id === id);
+      custo = await electronAPI.custos.buscar(id);
     }
     
     const isEdit = custo !== null;
@@ -293,7 +373,7 @@ const CustosPage = {
       const cats = MateriaisPage.categorias.filter(c => c.value !== '');
       options = cats.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
     } else {
-      options = this.categoriasDespesas.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
+      options = this.categorias.map(c => `<option value="${c.value}" ${atual === c.value ? 'selected' : ''}>${c.label}</option>`).join('');
     }
 
     select.innerHTML = options;
@@ -442,5 +522,181 @@ const CustosPage = {
         Toast.error('Erro ao remover custo fixo');
       }
     }
+  },
+
+  async openHistorico() {
+    try {
+      const historico = await electronAPI.custos.historicoMensal();
+      
+      // Group by month
+      const porMes = historico.reduce((acc, curr) => {
+        if (!acc[curr.mes]) acc[curr.mes] = { materiais: 0, despesas: 0, total: 0 };
+        acc[curr.mes][curr.tipo] = curr.total;
+        acc[curr.mes].total += curr.total;
+        return acc;
+      }, {});
+
+      const meses = Object.keys(porMes).sort().reverse();
+
+      Modal.open(`
+        <div class="modal-header">
+          <h3>🕒 Histórico de Pagamentos Mensais</h3>
+          <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+        </div>
+        <div class="modal-body">
+          <p class="page-subtitle" style="margin-bottom: var(--spacing-md);">Consolidado de tudo que já foi <strong>pago</strong> em meses anteriores.</p>
+          
+          <div style="max-height: 500px; overflow-y: auto;">
+            ${meses.length === 0 
+              ? '<div class="empty-state">Nenhum histórico de pagamentos encontrado.</div>' 
+              : `<table class="simple-table">
+                  <thead>
+                    <tr>
+                      <th>Mês/Ano</th>
+                      <th style="text-align: right;">Materiais</th>
+                      <th style="text-align: right;">Despesas</th>
+                      <th style="text-align: right;">Total Pago</th>
+                      <th style="text-align: center;">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${meses.map(m => {
+                      const dados = porMes[m];
+                      const [ano, mes] = m.split('-');
+                      const nomesMeses = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+                      const labelMes = `${nomesMeses[parseInt(mes)-1]}/${ano}`;
+                      
+                      return `
+                        <tr>
+                          <td><strong>${labelMes}</strong></td>
+                          <td style="text-align: right; color: var(--text-secondary);">${Helpers.formatCurrency(dados.materiais)}</td>
+                          <td style="text-align: right; color: var(--text-secondary);">${Helpers.formatCurrency(dados.despesas)}</td>
+                          <td style="text-align: right;"><strong style="color: var(--color-danger);">${Helpers.formatCurrency(dados.total)}</strong></td>
+                          <td style="text-align: center;">
+                            <button class="btn btn-sm btn-secondary" onclick="CustosPage.viewMonth('${m}')">Ver Detalhes</button>
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>`
+            }
+          </div>
+        </div>
+      `);
+    } catch (err) {
+      console.error(err);
+      Toast.error('Erro ao carregar histórico');
+    }
+  },
+
+  viewMonth(mes) {
+    this.filtros.mes = mes;
+    this.filtros.status = 'pago';
+    this.loadData();
+    Modal.close();
+    Toast.info(`Mostrando pagamentos de ${mes}`);
+  },
+
+  // ============ Category Manager ============
+  openCategoryManager() {
+    const customCats = this.getCustomCategorias();
+    Modal.open(`
+      <div class="modal-header">
+        <h3>${Helpers.icons.settings || '⚙️'} Gerenciar Categorias de Despesas</h3>
+        <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+      </div>
+      <div class="modal-body">
+        <p style="color: var(--text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--spacing-md);">
+          Gerencie como você classifica seus gastos de casa e negócio.
+        </p>
+
+        <div class="form-group">
+          <label class="form-label">Categorias Padrão</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${this.defaultCategorias.map(c => {
+              const isDeleted = this.getDeletedDefaultCategorias().includes(c.value);
+              return `
+                <div style="display: flex; align-items: center; gap: 4px; opacity: ${isDeleted ? '0.5' : '1'};">
+                  <span class="filter-chip ${!isDeleted ? 'active' : ''}" style="pointer-events: none;">${c.label}</span>
+                  <button class="btn-icon" style="width:24px;height:24px; font-size: 10px;" 
+                          onclick="CustosPage._toggleDefaultCategory('${c.value}')" 
+                          title="${isDeleted ? 'Restaurar' : 'Remover'}">
+                    ${isDeleted ? Helpers.icons.plus : Helpers.icons.trash}
+                  </button>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: var(--spacing-lg);">
+          <label class="form-label">Categorias Personalizadas</label>
+          <div id="custom-cats-list" style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;">
+            ${customCats.length === 0
+              ? '<p style="color: var(--text-tertiary); font-size: var(--font-size-sm);">Nenhuma categoria personalizada</p>'
+              : customCats.map((c, i) => `
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="filter-chip active" style="pointer-events: none;">${c.label}</span>
+                  <button class="btn-icon" style="width:28px;height:28px;" 
+                          onclick="CustosPage._removeCustomCategory('${c.value}')" title="Remover">
+                    ${Helpers.icons.trash}
+                  </button>
+                </div>
+              `).join('')
+            }
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <input type="text" class="form-input" id="new-cat-name-custos" 
+                   placeholder="Nova categoria de despesa..." style="flex: 1;"
+                   onkeydown="if(event.key==='Enter') CustosPage._addCustomCategory()">
+            <button class="btn btn-primary" onclick="CustosPage._addCustomCategory()">
+              ${Helpers.icons.plus} Adicionar
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Modal.close()">Fechar</button>
+      </div>
+    `);
+  },
+
+  _addCustomCategory() {
+    const input = document.getElementById('new-cat-name-custos');
+    const label = input.value.trim();
+    if (!label) return Toast.warning('Digite o nome da categoria');
+
+    const value = label.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    if (!value) return Toast.warning('Nome inválido');
+
+    const cats = this.getCustomCategorias();
+    const allValues = [...this.defaultCategorias.map(c => c.value), ...cats.map(c => c.value)];
+    if (allValues.includes(value)) return Toast.warning('Categoria já existe');
+
+    cats.push({ value, label });
+    this.saveCustomCategorias(cats);
+    Toast.success(`Categoria "${label}" criada!`);
+    this.openCategoryManager(); 
+  },
+
+  _removeCustomCategory(value) {
+    const cats = this.getCustomCategorias().filter(c => c.value !== value);
+    this.saveCustomCategorias(cats);
+    this.openCategoryManager();
+    Toast.success('Categoria removida');
+  },
+
+  _toggleDefaultCategory(value) {
+    let deleted = this.getDeletedDefaultCategorias();
+    if (deleted.includes(value)) {
+      deleted = deleted.filter(v => v !== value);
+      Toast.success('Categoria restaurada');
+    } else {
+      deleted.push(value);
+      Toast.success('Categoria padrão ocultada');
+    }
+    this.saveDeletedDefaultCategorias(deleted);
+    this.openCategoryManager();
   }
 };

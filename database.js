@@ -49,12 +49,14 @@ class Database {
       CREATE TABLE IF NOT EXISTS orcamento_itens (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         orcamento_id INTEGER NOT NULL,
+        material_id INTEGER,
         descricao TEXT NOT NULL,
         quantidade REAL DEFAULT 1,
         valor_unitario REAL DEFAULT 0,
         categoria TEXT DEFAULT 'material',
         comprado_pelo_cliente INTEGER DEFAULT 0,
-        FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE CASCADE
+        FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE CASCADE,
+        FOREIGN KEY (material_id) REFERENCES materiais(id) ON DELETE SET NULL
       );
 
       CREATE TABLE IF NOT EXISTS servicos (
@@ -82,6 +84,8 @@ class Database {
         nome TEXT NOT NULL,
         categoria TEXT DEFAULT 'geral',
         unidade TEXT DEFAULT 'un',
+        preco_custo REAL DEFAULT 0,
+        preco_venda REAL DEFAULT 0,
         valor_referencia REAL DEFAULT 0,
         descricao TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -159,6 +163,18 @@ class Database {
     try {
       this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN comprado_pelo_cliente INTEGER DEFAULT 0").run();
     } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE materiais ADD COLUMN preco_custo REAL DEFAULT 0").run();
+    } catch (e) { }
+
+    try {
+      this.db.prepare("ALTER TABLE materiais ADD COLUMN preco_venda REAL DEFAULT 0").run();
+    } catch (e) { }
+
+    try {
+      this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN material_id INTEGER").run();
+    } catch (e) { }
 
     try {
       this.db.prepare("ALTER TABLE custos ADD COLUMN orcamento_item_id INTEGER").run();
@@ -312,11 +328,12 @@ class Database {
 
   criarItemOrcamento(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO orcamento_itens (orcamento_id, descricao, quantidade, valor_unitario, categoria, comprado_pelo_cliente)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT INTO orcamento_itens (orcamento_id, material_id, descricao, quantidade, valor_unitario, categoria, comprado_pelo_cliente)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
-      dados.orcamento_id, 
+      dados.orcamento_id,
+      dados.material_id || null, 
       dados.descricao, 
       dados.quantidade || 1, 
       dados.valor_unitario || 0, 
@@ -330,10 +347,11 @@ class Database {
 
   atualizarItemOrcamento(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE orcamento_itens SET descricao=?, quantidade=?, valor_unitario=?, categoria=?, comprado_pelo_cliente=?
+      UPDATE orcamento_itens SET material_id=?, descricao=?, quantidade=?, valor_unitario=?, categoria=?, comprado_pelo_cliente=?
       WHERE id=?
     `);
     stmt.run(
+      dados.material_id || null,
       dados.descricao, 
       dados.quantidade, 
       dados.valor_unitario, 
@@ -378,18 +396,27 @@ class Database {
     const dataCusto = orcamento.criado_em.split(' ')[0]; // YYYY-MM-DD
     const descricaoCusto = `[Orç: ${orcamento.titulo}] ${itemData.descricao}`;
 
+    // Get current cost from material if linked
+    let valorCusto = itemData.quantidade * itemData.valor_unitario;
+    if (itemData.material_id) {
+      const material = this.db.prepare('SELECT preco_custo FROM materiais WHERE id = ?').get(itemData.material_id);
+      if (material && material.preco_custo > 0) {
+        valorCusto = itemData.quantidade * material.preco_custo;
+      }
+    }
+
     const custoExistente = this.db.prepare('SELECT id FROM custos WHERE orcamento_item_id = ?').get(itemId);
 
     if (custoExistente) {
       this.db.prepare(`
         UPDATE custos SET descricao=?, valor=?, data=?, status='previsto'
         WHERE orcamento_item_id=?
-      `).run(descricaoCusto, valorTotal, dataCusto, itemId);
+      `).run(descricaoCusto, valorCusto, dataCusto, itemId);
     } else {
       this.db.prepare(`
         INSERT INTO custos (tipo, categoria, descricao, valor, data, status, orcamento_item_id)
         VALUES ('materiais', 'outros', ?, ?, ?, 'previsto', ?)
-      `).run(descricaoCusto, valorTotal, dataCusto, itemId);
+      `).run(descricaoCusto, valorCusto, dataCusto, itemId);
     }
   }
 
@@ -497,20 +524,27 @@ class Database {
 
   // ============ MATERIAIS ============
   listarMateriais(filtros = {}) {
-    let query = 'SELECT * FROM materiais WHERE 1=1';
+    let query = `
+      SELECT m.*,
+        (SELECT COALESCE(SUM(oi.quantidade), 0) FROM orcamento_itens oi JOIN orcamentos o ON oi.orcamento_id = o.id WHERE oi.material_id = m.id AND o.status = 'aprovado') as total_vendido,
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi JOIN orcamentos o ON oi.orcamento_id = o.id WHERE oi.material_id = m.id AND o.status = 'aprovado') as receita_total,
+        (SELECT COALESCE(SUM(c.valor), 0) FROM custos c JOIN orcamento_itens oi ON c.orcamento_item_id = oi.id JOIN orcamentos o ON oi.orcamento_id = o.id WHERE oi.material_id = m.id AND o.status = 'aprovado') as custo_total
+      FROM materiais m
+      WHERE 1=1
+    `;
     const params = [];
 
     if (filtros.busca) {
-      query += ' AND (nome LIKE ? OR descricao LIKE ?)';
+      query += ' AND (m.nome LIKE ? OR m.descricao LIKE ?)';
       const term = `%${filtros.busca}%`;
       params.push(term, term);
     }
     if (filtros.categoria) {
-      query += ' AND categoria = ?';
+      query += ' AND m.categoria = ?';
       params.push(filtros.categoria);
     }
 
-    query += ' ORDER BY nome ASC';
+    query += ' ORDER BY m.nome ASC';
     return this.db.prepare(query).all(...params);
   }
 
@@ -520,19 +554,36 @@ class Database {
 
   criarMaterial(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO materiais (nome, categoria, unidade, valor_referencia, descricao)
-      VALUES (?, ?, ?, ?, ?)
+      INSERT INTO materiais (nome, categoria, unidade, preco_custo, preco_venda, valor_referencia, descricao)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    const result = stmt.run(dados.nome, dados.categoria || 'geral', dados.unidade || 'un', dados.valor_referencia || 0, dados.descricao || '');
+    const result = stmt.run(
+      dados.nome, 
+      dados.categoria || 'geral', 
+      dados.unidade || 'un', 
+      dados.preco_custo || 0,
+      dados.preco_venda || 0,
+      dados.preco_venda || 0, // valor_referencia keeps sync with preco_venda
+      dados.descricao || ''
+    );
     return { id: result.lastInsertRowid, ...dados };
   }
 
   atualizarMaterial(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE materiais SET nome=?, categoria=?, unidade=?, valor_referencia=?, descricao=?
+      UPDATE materiais SET nome=?, categoria=?, unidade=?, preco_custo=?, preco_venda=?, valor_referencia=?, descricao=?
       WHERE id=?
     `);
-    stmt.run(dados.nome, dados.categoria, dados.unidade, dados.valor_referencia, dados.descricao, id);
+    stmt.run(
+      dados.nome, 
+      dados.categoria, 
+      dados.unidade, 
+      dados.preco_custo || 0,
+      dados.preco_venda || 0,
+      dados.preco_venda || 0, // valor_referencia keeps sync with preco_venda
+      dados.descricao, 
+      id
+    );
     return this.buscarMaterial(id);
   }
 
@@ -629,7 +680,18 @@ class Database {
       LIMIT 12
     `).all();
 
-    return { clientesPorMes, faturamentoPorMes };
+    const custosPorMes = this.db.prepare(`
+      SELECT strftime('%Y-%m', data) as mes,
+        COALESCE(SUM(valor), 0) as total
+      FROM custos
+      WHERE status = 'pago'
+        AND data >= date('now', '-12 months')
+      GROUP BY mes
+      ORDER BY mes DESC
+      LIMIT 12
+    `).all();
+
+    return { clientesPorMes, faturamentoPorMes, custosPorMes };
   }
 
   // ============ CUSTOS ============
@@ -661,6 +723,10 @@ class Database {
 
     query += ' ORDER BY data DESC, criado_em DESC';
     return this.db.prepare(query).all(...params);
+  }
+
+  buscarCusto(id) {
+    return this.db.prepare('SELECT * FROM custos WHERE id = ?').get(id);
   }
 
   criarCusto(dados) {
@@ -982,6 +1048,20 @@ class Database {
       custos: custos?.total || 0,
       metas_compradas: metas_compradas?.total || 0
     };
+  }
+
+  getHistoricoMensalPagos() {
+    return this.db.prepare(`
+      SELECT 
+        strftime('%Y-%m', data) as mes,
+        tipo,
+        SUM(valor) as total,
+        COUNT(*) as qtd
+      FROM custos
+      WHERE status = 'pago'
+      GROUP BY mes, tipo
+      ORDER BY mes DESC
+    `).all();
   }
 }
 
