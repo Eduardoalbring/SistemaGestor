@@ -101,8 +101,11 @@ class Database {
         observacoes TEXT,
         status TEXT DEFAULT 'pago',
         orcamento_item_id INTEGER,
+        meta_id INTEGER,
+        grupo_id TEXT,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (orcamento_item_id) REFERENCES orcamento_itens(id) ON DELETE CASCADE
+        FOREIGN KEY (orcamento_item_id) REFERENCES orcamento_itens(id) ON DELETE CASCADE,
+        FOREIGN KEY (meta_id) REFERENCES metas(id) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS eventos (
@@ -157,6 +160,14 @@ class Database {
     // Relacionamento de hierarquia entre serviços (OS pai/filha)
     try {
       this.db.prepare("ALTER TABLE servicos ADD COLUMN servico_pai_id INTEGER").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN meta_id INTEGER").run();
+    } catch (e) { /* Coluna já existe */ }
+
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN grupo_id TEXT").run();
     } catch (e) { /* Coluna já existe */ }
 
     // Novas colunas para controle de compras pelo cliente
@@ -598,10 +609,17 @@ class Database {
     const servicosAndamento = this.db.prepare("SELECT COUNT(*) as total FROM servicos WHERE status = 'em_andamento'").get().total;
     const servicosConcluidos = this.db.prepare("SELECT COUNT(*) as total FROM servicos WHERE status = 'concluido'").get().total;
 
-    const faturamento = this.db.prepare(`
+    const faturamentoTotal = this.db.prepare(`
       SELECT COALESCE(SUM(
         (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
         + o.mao_de_obra - o.desconto
+      ), 0) as total
+      FROM orcamentos o WHERE o.status = 'aprovado'
+    `).get().total;
+
+    const faturamentoMateriaisTotal = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
       ), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado'
     `).get().total;
@@ -615,18 +633,43 @@ class Database {
     `).all();
 
     const mesAtual = new Date().toISOString().slice(0, 7);
-    const custosMes = this.db.prepare(`
-      SELECT COALESCE(SUM(valor), 0) as total FROM custos 
-      WHERE strftime('%Y-%m', data) = ?
+    const faturamentoMesTotal = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        + o.mao_de_obra - o.desconto
+      ), 0) as total
+      FROM orcamentos o 
+      WHERE o.status = 'aprovado' 
+      AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
+
+    const faturamentoMateriaisMes = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+      ), 0) as total
+      FROM orcamentos o 
+      WHERE o.status = 'aprovado' 
+      AND strftime('%Y-%m', o.criado_em) = ?
+    `).get(mesAtual).total;
+
+    const custosMateriaisMes = this.db.prepare(`
+      SELECT COALESCE(SUM(valor), 0) as total FROM custos 
+      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND strftime('%Y-%m', data) = ?
+    `).get(mesAtual).total;
+
+    const lucroMes = faturamentoMateriaisMes - custosMateriaisMes;
 
     return {
       totalClientes,
       orcamentosPendentes,
       servicosAndamento,
       servicosConcluidos,
-      faturamento,
-      custosMes,
+      faturamento: faturamentoTotal,
+      faturamentoMateriais: faturamentoMateriaisTotal,
+      faturamentoMes: faturamentoMesTotal,
+      faturamentoMateriaisMes,
+      custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND strftime('%Y-%m', data) = ?").get(mesAtual).total,
+      lucroMes,
       orcamentosPorStatus,
       servicosPorStatus
     };
@@ -679,18 +722,47 @@ class Database {
       LIMIT 12
     `).all();
 
-    const custosPorMes = this.db.prepare(`
+    const faturamentoMateriaisPorMes = this.db.prepare(`
+      SELECT strftime('%Y-%m', o.criado_em) as mes,
+        COALESCE(SUM(
+          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        ), 0) as total
+      FROM orcamentos o
+      WHERE o.status = 'aprovado'
+        AND o.criado_em >= date('now', '-12 months')
+      GROUP BY mes
+      ORDER BY mes DESC
+      LIMIT 12
+    `).all();
+
+    const custosMateriaisPorMes = this.db.prepare(`
       SELECT strftime('%Y-%m', data) as mes,
         COALESCE(SUM(valor), 0) as total
       FROM custos
-      WHERE status = 'pago'
+      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL
         AND data >= date('now', '-12 months')
       GROUP BY mes
       ORDER BY mes DESC
       LIMIT 12
     `).all();
 
-    return { clientesPorMes, faturamentoPorMes, custosPorMes };
+    // Calcula lucro por mês mesclando faturamento de MATERIAIS e custos
+    const lucroPorMes = [];
+    const todosMeses = [...new Set([...faturamentoMateriaisPorMes.map(f => f.mes), ...custosMateriaisPorMes.map(c => c.mes)])].sort().reverse();
+    
+    todosMeses.forEach(mes => {
+      const fatMat = faturamentoMateriaisPorMes.find(f => f.mes === mes)?.total || 0;
+      const custoMat = custosMateriaisPorMes.find(c => c.mes === mes)?.total || 0;
+      lucroPorMes.push({ mes, total: fatMat - custoMat });
+    });
+
+    return { 
+      clientesPorMes, 
+      faturamentoPorMes, 
+      faturamentoMateriaisPorMes,
+      custosPorMes: this.db.prepare("SELECT strftime('%Y-%m', data) as mes, COALESCE(SUM(valor), 0) as total FROM custos WHERE status='pago' AND data >= date('now', '-12 months') GROUP BY mes ORDER BY mes DESC").all(),
+      lucroPorMes 
+    };
   }
 
   // ============ CUSTOS ============
@@ -728,14 +800,26 @@ class Database {
     return this.db.prepare('SELECT * FROM custos WHERE id = ?').get(id);
   }
 
+  getGrupoInfo(grupoId) {
+    if (!grupoId) return { total: 1, pendentes: 0 };
+    const total = this.db.prepare('SELECT COUNT(*) as count FROM custos WHERE grupo_id = ?').get(grupoId).count;
+    const pendentes = this.db.prepare("SELECT COUNT(*) as count FROM custos WHERE grupo_id = ? AND status = 'previsto'").get(grupoId).count;
+    return { total, pendentes };
+  }
+
   criarCusto(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO custos (tipo, categoria, descricao, valor, data, observacoes, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO custos (tipo, categoria, descricao, valor, data, observacoes, status, meta_id, grupo_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const ids = [];
     const parcelas = parseInt(dados.parcelas) || 1;
+    const grupoId = dados.grupo_id || `GRP-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`;
+    const total = parseFloat(dados.valor) || 0;
+    const valorParcela = parcelas > 1 ? Math.floor((total * 100) / parcelas) / 100 : total;
+    const valorUltimaParcela = total - (valorParcela * (parcelas - 1));
+    
     const baseDate = new Date(dados.data);
     const baseDescricao = dados.descricao;
 
@@ -745,15 +829,18 @@ class Database {
         const dataStr = currentDate.toISOString().slice(0, 10);
         const isParcelado = parcelas > 1;
         const finalDesc = isParcelado ? `${baseDescricao} (${i+1}/${parcelas})` : baseDescricao;
+        const valorFinalParcela = (i === parcelas - 1) ? valorUltimaParcela : valorParcela;
         
         const result = stmt.run(
           dados.tipo || 'materiais',
           dados.categoria || 'outros',
           finalDesc,
-          dados.valor || 0,
+          valorFinalParcela,
           dataStr,
           dados.observacoes || null,
-          dados.status || 'pago'
+          dados.status || 'pago',
+          dados.meta_id || null,
+          grupoId
         );
         ids.push(result.lastInsertRowid);
       }
@@ -785,8 +872,43 @@ class Database {
     return { id, status };
   }
 
+  marcarStatusGrupo(grupoId, status, quantidade = null) {
+    if (!grupoId) return { success: false };
+
+    if (quantidade) {
+      // Busca os IDs das próximas N parcelas que ainda não estão no status desejado
+      const parcelas = this.db.prepare(`
+        SELECT id FROM custos 
+        WHERE grupo_id = ? AND status != ?
+        ORDER BY data ASC 
+        LIMIT ?
+      `).all(grupoId, status, parseInt(quantidade));
+
+      if (parcelas.length > 0) {
+        const ids = parcelas.map(p => p.id);
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(`UPDATE custos SET status = ? WHERE id IN (${placeholders})`).run(status, ...ids);
+      }
+    } else {
+      // Marca todas do grupo
+      this.db.prepare('UPDATE custos SET status = ? WHERE grupo_id = ?').run(status, grupoId);
+    }
+
+    return { success: true };
+  }
+
   excluirCusto(id) {
     this.db.prepare('DELETE FROM custos WHERE id = ?').run(id);
+    return { success: true };
+  }
+
+  excluirCustosPorMeta(metaId) {
+    this.db.prepare('DELETE FROM custos WHERE meta_id = ?').run(metaId);
+    return { success: true };
+  }
+
+  excluirCustosPorGrupo(grupoId) {
+    this.db.prepare('DELETE FROM custos WHERE grupo_id = ?').run(grupoId);
     return { success: true };
   }
 
@@ -1031,21 +1153,19 @@ class Database {
       WHERE o.status = 'aprovado'
     `).get();
 
-    // Conta TODOS os custos já registrados
-    const custos = this.db.prepare('SELECT COALESCE(SUM(valor), 0) as total FROM custos').get();
-
-    // Conta TODAS as metas já concluídas (compradas)
-    const metas_compradas = this.db.prepare(`
-      SELECT COALESCE(SUM(valor_alvo), 0) as total FROM metas WHERE status = 'concluido'
-    `).get();
-
-    const saldo = (fat?.total || 0) - (custos?.total || 0) - (metas_compradas?.total || 0);
+    // Conta TODOS os custos já registrados (EXCLUINDO os vinculados a metas para evitar dup)
+    // Na verdade, o ideal é: Saldo = (Faturamento Total) - (Todos os Custos)
+    // Porque o custo da meta já está na tabela de custos.
+    const custos_sem_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL").get();
+    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL").get();
+    
+    const saldo = (fat?.total || 0) - (custos_sem_meta?.total || 0) - (custos_com_meta?.total || 0);
 
     return { 
       saldo, 
       faturamento: fat?.total || 0, 
-      custos: custos?.total || 0,
-      metas_compradas: metas_compradas?.total || 0
+      custos: custos_sem_meta?.total || 0,
+      metas_compradas: custos_com_meta?.total || 0
     };
   }
 

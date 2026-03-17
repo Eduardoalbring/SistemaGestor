@@ -260,8 +260,12 @@ const OrcamentosPage = {
                   <input type="number" value="${item.quantidade}" placeholder="Qtd" min="0.01" step="0.01"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'quantidade', this.value)"
                          style="text-align: center;">
-                  <input type="number" value="${item.valor_unitario}" placeholder="Valor un." min="0" step="0.01"
-                         onchange="OrcamentosPage.updateItem(${item.id}, 'valor_unitario', this.value)">
+                   <div class="input-prefix-wrapper">
+                     <span class="input-prefix-text">R$</span>
+                     <input type="number" value="${item.valor_unitario}" placeholder="0,00" min="0" step="0.01"
+                            class="input-with-prefix"
+                            onchange="OrcamentosPage.updateItem(${item.id}, 'valor_unitario', this.value)">
+                   </div>
                   <div style="text-align: right; font-weight: 600; color: ${item.comprado_pelo_cliente ? 'var(--text-tertiary)' : 'var(--text-primary)'}; font-size: var(--font-size-sm); padding: 0 8px; ${item.comprado_pelo_cliente ? 'text-decoration: line-through;' : ''}">
                     ${Helpers.formatCurrency(item.quantidade * item.valor_unitario)}
                   </div>

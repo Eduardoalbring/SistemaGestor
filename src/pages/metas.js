@@ -244,26 +244,143 @@ const MetasPage = {
     try {
       const todas = await electronAPI.metas.listar();
       const meta = todas.find(m => m.id === id);
+      
+      const custoCats = [
+        { value: 'ferramentas', label: 'Ferramentas/Equip.' },
+        { value: 'combustivel', label: 'Combustível' },
+        { value: 'alimentacao', label: 'Alimentação' },
+        { value: 'impostos', label: 'Impostos/Taxas' },
+        { value: 'marketing', label: 'Marketing' },
+        { value: 'outros', label: 'Outros' }
+      ];
+
+      Modal.open(`
+        <div class="modal-header">
+          <h3>Confirmar Compra: ${meta.titulo}</h3>
+          <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin-bottom: var(--spacing-md); font-size: var(--font-size-sm); color: var(--text-secondary);">
+            Ao confirmar, o status será alterado para "Comprado" e um lançamento será criado nos seus Custos.
+          </p>
+          
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Valor Final (R$)</label>
+              <input type="number" class="form-input" id="compra-valor" value="${meta.valor_alvo}" step="0.01">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Data da Compra</label>
+              <input type="date" class="form-input" id="compra-data" value="${new Date().toISOString().slice(0, 10)}">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Status Inicial</label>
+            <select class="form-select" id="compra-status">
+              <option value="previsto">⏳ A Pagar (Em Aberto)</option>
+              <option value="pago">✅ Já Pago</option>
+            </select>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Parcelas (1 = À Vista)</label>
+              <input type="number" class="form-input" id="compra-parcelas" value="1" min="1" max="360" oninput="document.getElementById('compra-juros-row').style.display = this.value > 1 ? 'flex' : 'none'">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Categoria do Gasto</label>
+              <select class="form-select" id="compra-categoria">
+                ${custoCats.map(c => `<option value="${c.value}" ${meta.icone === 'tool' && c.value === 'ferramentas' ? 'selected' : ''}>${c.label}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row" id="compra-juros-row" style="display: none;">
+            <div class="form-group">
+              <label class="form-label">Juros Totais (R$)</label>
+              <input type="number" class="form-input" id="compra-juros" value="0" step="0.01">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Desconto (R$)</label>
+              <input type="number" class="form-input" id="compra-desconto" value="0" step="0.01">
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Observações</label>
+            <textarea class="form-textarea" id="compra-obs" placeholder="Ex: Comprado na loja X, garantia de 1 ano..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" onclick="Modal.close()">Cancelar</button>
+          <button class="btn btn-primary" onclick="MetasPage.confirmarCompra(${id})">
+            ${Helpers.icons.check} Confirmar Lançamento
+          </button>
+        </div>
+      `);
+    } catch (err) {
+      Toast.error('Erro ao abrir confirmação de compra');
+    }
+  },
+
+  async confirmarCompra(id) {
+    try {
+      const valorBase = parseFloat(document.getElementById('compra-valor').value) || 0;
+      const juros = parseFloat(document.getElementById('compra-juros').value) || 0;
+      const desconto = parseFloat(document.getElementById('compra-desconto').value) || 0;
+      const valorFinal = (valorBase + juros - desconto);
+      
+      const dadosCusto = {
+        tipo: 'despesas',
+        status: document.getElementById('compra-status').value,
+        data: document.getElementById('compra-data').value,
+        descricao: `[Compra Meta] ${document.getElementById('compra-obs').value || 'Meta Concluída'}`,
+        valor: valorFinal,
+        categoria: document.getElementById('compra-categoria').value,
+        parcelas: parseInt(document.getElementById('compra-parcelas').value),
+        observacoes: document.getElementById('compra-obs').value,
+        meta_id: id
+      };
+
+      // 1. Criar o custo (ou parcelas de custo)
+      await electronAPI.custos.criar(dadosCusto);
+
+      // 2. Atualizar o status da meta
+      const todas = await electronAPI.metas.listar();
+      const meta = todas.find(m => m.id === id);
       meta.status = 'concluido';
       await electronAPI.metas.atualizar(id, meta);
-      Toast.success(`Meta '${meta.titulo}' marcada como comprada! O valor foi debitado do seu saldo geral.`);
+
+      Toast.success(`Compra efetuada! Lançamento de ${Helpers.formatCurrency(valorFinal)} criado nos custos.`);
+      Modal.close();
       this.loadData();
     } catch (err) {
-      Toast.error('Erro ao atualizar meta');
+      console.error(err);
+      Toast.error('Erro ao processar compra');
     }
   },
 
   async marcarPendente(id) {
-    try {
-      const todas = await electronAPI.metas.listar();
-      const meta = todas.find(m => m.id === id);
-      meta.status = 'pendente';
-      await electronAPI.metas.atualizar(id, meta);
-      Toast.success(`Meta '${meta.titulo}' revertida para pendente.`);
-      this.loadData();
-    } catch (err) {
-      Toast.error('Erro ao atualizar meta');
-    }
+    const todas = await electronAPI.metas.listar();
+    const meta = todas.find(m => m.id === id);
+
+    Modal.confirm(`Deseja realmente reverter a meta <strong>${meta.titulo}</strong>?<br><br><small style="color:var(--color-danger)">Isso excluirá permanentemente todos os lançamentos de custos associados a esta compra no seu financeiro.</small>`, async () => {
+      try {
+        // 1. Excluir custos vinculados
+        await electronAPI.custos.excluirPorMeta(id);
+
+        // 2. Voltar status da meta
+        meta.status = 'pendente';
+        await electronAPI.metas.atualizar(id, meta);
+
+        Toast.success(`Meta '${meta.titulo}' revertida. Os custos associados foram removidos do seu financeiro.`);
+        this.loadData();
+      } catch (err) {
+        console.error(err);
+        Toast.error('Erro ao reverter meta');
+      }
+    });
   },
 
   confirmDelete(id, titulo) {

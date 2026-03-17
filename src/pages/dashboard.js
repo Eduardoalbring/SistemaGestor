@@ -60,6 +60,11 @@ const DashboardPage = {
         <div class="metric-value" style="color: var(--color-danger);">${Helpers.formatCurrency(m.custosMes)}</div>
         <div class="metric-label">Despesas (Mês Atual)</div>
       </div>
+      <div class="metric-card" style="border: 2px solid var(--color-info); background: var(--color-info-bg);">
+        <div class="metric-icon" style="background: var(--color-info); color: white;">${Helpers.icons.trendingUp}</div>
+        <div class="metric-value" style="color: var(--color-info);">${Helpers.formatCurrency(m.lucroMes)}</div>
+        <div class="metric-label" style="color: var(--color-info); font-weight: 700;">Lucro Líquido (Materiais)</div>
+      </div>
     `;
   },
 
@@ -195,6 +200,22 @@ const DashboardPage = {
                 <thead><tr><th>Mês</th><th style="text-align:right;">Total Pago</th></tr></thead>
                 <tbody>
                   ${mensais.custosPorMes.map(r => `<tr><td>${mesesLabel(r.mes)}</td><td style="text-align:right;"><strong style="color:var(--color-danger);">${Helpers.formatCurrency(r.total)}</strong></td></tr>`).join('')}
+                </tbody>
+              </table>`
+          }
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">${Helpers.icons.trendingUp} Lucro por Mês (Materiais)</span>
+        </div>
+        <div class="monthly-table">
+          ${mensais.lucroPorMes?.length === 0
+            ? '<p style="color: var(--text-tertiary); text-align: center; padding: 1rem; font-size: var(--font-size-sm);">Sem dados ainda</p>'
+            : `<table class="simple-table">
+                <thead><tr><th>Mês</th><th style="text-align:right;">Lucro Líquido</th></tr></thead>
+                <tbody>
+                  ${mensais.lucroPorMes.map(r => `<tr><td>${mesesLabel(r.mes)}</td><td style="text-align:right;"><strong style="color:${r.total >= 0 ? 'var(--color-success)' : 'var(--color-danger)'};">${Helpers.formatCurrency(r.total)}</strong></td></tr>`).join('')}
                 </tbody>
               </table>`
           }

@@ -1140,6 +1140,27 @@ tr:last-child td {
   border-color: #F59E0B;
 }
 
+/* ============ Input Prefix Styles ============ */
+.input-prefix-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-prefix-text {
+  position: absolute;
+  left: 10px;
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  color: var(--text-tertiary);
+  pointer-events: none;
+  user-select: none;
+}
+
+.input-with-prefix {
+  padding-left: 32px !important;
+}
+
 /* ============ Client Details ============ */
 .client-header {
   display: flex;

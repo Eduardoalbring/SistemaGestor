@@ -72,6 +72,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     relatorio: () => ipcRenderer.invoke('custos:relatorio'),
     marcarStatus: (id, status) => ipcRenderer.invoke('custos:marcarStatus', id, status),
     historicoMensal: () => ipcRenderer.invoke('custos:historicoMensal'),
+    excluirPorMeta: (metaId) => ipcRenderer.invoke('custos:excluirPorMeta', metaId),
+    excluirPorGrupo: (grupoId) => ipcRenderer.invoke('custos:excluirPorGrupo', grupoId),
+    getGrupoInfo: (grupoId) => ipcRenderer.invoke('custos:getGrupoInfo', grupoId),
+    marcarStatusGrupo: (grupoId, status, qtd) => ipcRenderer.invoke('custos:marcarStatusGrupo', grupoId, status, qtd),
   },
 
   // Custos Fixos (Despesas Obrigatórias)

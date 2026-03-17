@@ -107,6 +107,7 @@ const MateriaisPage = {
     document.getElementById('materiais-table-body').innerHTML = Table.render({
       columns: [
         { label: 'Material', render: (r) => `<strong>${r.nome}</strong>` },
+        { label: 'Preço Venda', render: (r) => `<strong style="color: var(--accent-primary);">${Helpers.formatCurrency(r.preco_venda || 0)}</strong>` },
         { label: 'Categoria', render: (r) => `<span class="badge badge-enviado">${this._categoriaLabel(r.categoria)}</span>` },
         { label: 'Unidade', render: (r) => Helpers.unidadeLabel(r.unidade) },
         { 
@@ -340,7 +341,6 @@ const MateriaisPage = {
             </div>
           </div>
         </div>
-        <script>setTimeout(() => MateriaisPage.calcMargin(), 100);</script>
         <div class="form-group">
           <label class="form-label">Descrição</label>
           <textarea class="form-textarea" id="mat-descricao" placeholder="Características do material...">${isEdit ? (material.descricao || '') : ''}</textarea>
@@ -353,6 +353,9 @@ const MateriaisPage = {
         </button>
       </div>
     `);
+
+    // Fix: Calculate margin immediately on open
+    this.calcMargin();
   },
 
   async saveForm(id) {

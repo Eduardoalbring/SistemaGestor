@@ -144,6 +144,10 @@ ipcMain.handle('custos:excluir', (_, id) => db.excluirCusto(id));
 ipcMain.handle('custos:relatorio', () => db.getRelatorioCustos());
 ipcMain.handle('custos:marcarStatus', (_, id, status) => db.marcarCustoStatus(id, status));
 ipcMain.handle('custos:historicoMensal', () => db.getHistoricoMensalPagos());
+ipcMain.handle('custos:excluirPorMeta', (e, metaId) => db.excluirCustosPorMeta(metaId));
+ipcMain.handle('custos:excluirPorGrupo', (e, grupoId) => db.excluirCustosPorGrupo(grupoId));
+ipcMain.handle('custos:getGrupoInfo', (e, grupoId) => db.getGrupoInfo(grupoId));
+ipcMain.handle('custos:marcarStatusGrupo', (e, grupoId, status, qtd) => db.marcarStatusGrupo(grupoId, status, qtd));
 
 // ============ CUSTOS FIXOS ============
 ipcMain.handle('custosFixos:listar', () => db.listarCustosFixos());

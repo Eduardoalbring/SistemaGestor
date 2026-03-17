@@ -232,11 +232,76 @@ const CustosPage = {
 
   async trocarStatus(id, novoStatus) {
     try {
+      if (novoStatus === 'pago') {
+        const custo = await electronAPI.custos.buscar(id);
+        const grupoInfo = await electronAPI.custos.getGrupoInfo(custo.grupo_id);
+
+        if (grupoInfo && grupoInfo.total > 1) {
+          // Busca quantas faltam pagar (status != pago)
+          // Na verdade o getGrupoInfo traz o total. Ideal seria saber quantas pendentes.
+          // Por simplicidade, oferecemos as opções se houver mais de uma no grupo.
+          
+          Modal.open(`
+            <div class="modal-header">
+              <h3>Confirmar Pagamento</h3>
+              <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+            </div>
+            <div class="modal-body">
+              <p style="margin-bottom: var(--spacing-lg)">O lançamento <strong>${custo.descricao}</strong> faz parte de uma série de <strong>${grupoInfo.total}</strong> lançamentos (<strong>${grupoInfo.pendentes}</strong> ainda pendentes). Como deseja confirmar?</p>
+              
+              <div style="display: flex; flex-direction: column; gap: var(--spacing-sm);">
+                <button class="btn btn-success" onclick="CustosPage.execTrocarStatus(${id}, 'pago')">
+                  ✅ Pagar apenas esta parcela
+                </button>
+                
+                <div style="background: var(--bg-secondary); padding: var(--spacing-md); border-radius: var(--radius-md); border: 1px solid var(--border-color);">
+                  <label class="form-label" style="font-size: 0.75rem;">Pagar próximas parcelas (Máx: ${grupoInfo.pendentes}):</label>
+                  <div style="display: flex; gap: 8px;">
+                    <input type="number" class="form-input" id="qtd-pagar" value="${Math.min(2, grupoInfo.pendentes)}" min="1" max="${grupoInfo.pendentes}" style="width: 80px;">
+                    <button class="btn btn-secondary" style="flex: 1;" onclick="let q = document.getElementById('qtd-pagar').value; if(q > ${grupoInfo.pendentes}) { Toast.warning('Quantidade superior às pendentes'); return; } CustosPage.execTrocarStatusGrupo('${custo.grupo_id}', 'pago', q)">
+                      Confirmar Quantidade
+                    </button>
+                  </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="CustosPage.execTrocarStatusGrupo('${custo.grupo_id}', 'pago')">
+                  💰 Pagar TODAS as pendentes (${grupoInfo.pendentes})
+                </button>
+                
+                <button class="btn btn-ghost" onclick="Modal.close()">Cancelar</button>
+              </div>
+            </div>
+          `);
+          return;
+        }
+      }
+
+      await this.execTrocarStatus(id, novoStatus);
+    } catch (err) {
+      console.error(err);
+      Toast.error('Erro ao processar status');
+    }
+  },
+
+  async execTrocarStatus(id, novoStatus) {
+    try {
       await electronAPI.custos.marcarStatus(id, novoStatus);
       Toast.success(novoStatus === 'pago' ? 'Marcado como pago!' : 'Marcado como pendente');
+      Modal.close();
       this.loadData();
     } catch (err) {
       Toast.error('Erro ao alterar status');
+    }
+  },
+
+  async execTrocarStatusGrupo(grupoId, status, qtd = null) {
+    try {
+      await electronAPI.custos.marcarStatusGrupo(grupoId, status, qtd);
+      Toast.success(qtd ? `${qtd} parcelas marcadas como pagas!` : 'Todas as parcelas marcadas como pagas!');
+      Modal.close();
+      this.loadData();
+    } catch (err) {
+      Toast.error('Erro ao atualizar grupo');
     }
   },
 
@@ -413,16 +478,68 @@ const CustosPage = {
     }
   },
 
-  confirmDelete(id, desc) {
-    Modal.confirm(`Tem certeza que deseja excluir o lançamento <strong>${desc}</strong>?`, async () => {
-      try {
-        await electronAPI.custos.excluir(id);
-        Toast.success('Custo excluído com sucesso');
-        this.loadData();
-      } catch (err) {
-        Toast.error('Erro ao excluir custo');
+  async confirmDelete(id, desc) {
+    try {
+      const custo = await electronAPI.custos.buscar(id);
+      const grupoInfo = await electronAPI.custos.getGrupoInfo(custo.grupo_id);
+      
+      if (grupoInfo && grupoInfo.total > 1) {
+        Modal.open(`
+          <div class="modal-header">
+            <h3>Excluir Lançamento Parcelado</h3>
+            <button class="modal-close" onclick="Modal.close()">${Helpers.icons.close}</button>
+          </div>
+          <div class="modal-body">
+            <p style="margin-bottom: var(--spacing-lg)">O lançamento <strong>${desc}</strong> faz parte de uma compra parcelada. O que deseja fazer?</p>
+            
+            <div style="display: flex; flex-direction: column; gap: var(--spacing-sm);">
+              <button class="btn btn-secondary" onclick="CustosPage.deleteSingle(${id})">
+                🗑️ Excluir apenas esta parcela
+              </button>
+              <button class="btn btn-danger" onclick="CustosPage.deleteGroup('${custo.grupo_id}', '${desc}')">
+                💥 Excluir TODA a compra (${grupoInfo.total} parcelas)
+              </button>
+              <button class="btn btn-ghost" onclick="Modal.close()">Cancelar</button>
+            </div>
+          </div>
+        `);
+      } else {
+        Modal.confirm(`Tem certeza que deseja excluir o lançamento <strong>${desc}</strong>?`, async () => {
+          try {
+            await electronAPI.custos.excluir(id);
+            Toast.success('Custo excluído com sucesso');
+            this.loadData();
+          } catch (err) {
+            Toast.error('Erro ao excluir custo');
+          }
+        });
       }
-    });
+    } catch (err) {
+      console.error(err);
+      Toast.error('Erro ao processar exclusão');
+    }
+  },
+
+  async deleteSingle(id) {
+    try {
+      await electronAPI.custos.excluir(id);
+      Toast.success('Parcela excluída');
+      Modal.close();
+      this.loadData();
+    } catch (err) {
+      Toast.error('Erro ao excluir parcela');
+    }
+  },
+
+  async deleteGroup(grupoId, desc) {
+    try {
+      await electronAPI.custos.excluirPorGrupo(grupoId);
+      Toast.success('Compra completa excluída');
+      Modal.close();
+      this.loadData();
+    } catch (err) {
+      Toast.error('Erro ao excluir grupo');
+    }
   },
 
   // ============ CUSTOS FIXOS ============
