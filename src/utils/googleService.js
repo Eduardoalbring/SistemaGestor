@@ -7,13 +7,13 @@ class GoogleCalendarService {
   constructor(userDataPath) {
     this.userDataPath = userDataPath;
     this.tokenPath = path.join(this.userDataPath, 'google_token.json');
-    
+
     // IDs carregados do .env para segurança
     this.clientId = process.env.GOOGLE_CLIENT_ID;
     this.clientSecret = process.env.GOOGLE_CLIENT_SECRET;
     // Porta fixa para o retorno local (usada para pegar o token de auth)
     this.redirectUri = 'http://localhost:3000/oauth2callback';
-    
+
     this.oauth2Client = new OAuth2Client(
       this.clientId,
       this.clientSecret,
@@ -80,7 +80,7 @@ class GoogleCalendarService {
 
   async listarEventosFuturos() {
     if (!this.isAuthenticated()) return [];
-    
+
     try {
       const res = await this.calendar.events.list({
         calendarId: 'primary',
