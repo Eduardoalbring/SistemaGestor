@@ -1,4 +1,5 @@
-const { google } = require('googleapis');
+const { OAuth2Client } = require('google-auth-library');
+const { calendar } = require('googleapis/build/src/apis/calendar');
 const path = require('path');
 const fs = require('fs');
 
@@ -13,7 +14,7 @@ class GoogleCalendarService {
     // Porta fixa para o retorno local (usada para pegar o token de auth)
     this.redirectUri = 'http://localhost:3000/oauth2callback';
     
-    this.oauth2Client = new google.auth.OAuth2(
+    this.oauth2Client = new OAuth2Client(
       this.clientId,
       this.clientSecret,
       this.redirectUri
@@ -74,7 +75,7 @@ class GoogleCalendarService {
 
   // ================= CALENDAR METHODS =================
   get calendar() {
-    return google.calendar({ version: 'v3', auth: this.oauth2Client });
+    return calendar({ version: 'v3', auth: this.oauth2Client });
   }
 
   async listarEventosFuturos() {

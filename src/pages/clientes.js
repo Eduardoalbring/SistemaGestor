@@ -171,7 +171,7 @@ const ClientesPage = {
 
   async saveForm(id) {
     const dados = {
-      nome: document.getElementById('cliente-nome').value.trim(),
+      nome: document.getElementById('cliente-nome').value.trim() || 'Sem Nome',
       telefone: document.getElementById('cliente-telefone').value.trim(),
       email: document.getElementById('cliente-email').value.trim(),
       endereco: document.getElementById('cliente-endereco').value.trim(),
@@ -179,11 +179,6 @@ const ClientesPage = {
       tipo: document.getElementById('cliente-tipo').value,
       notas: document.getElementById('cliente-notas').value.trim(),
     };
-
-    if (!dados.nome) {
-      Toast.warning('Nome é obrigatório');
-      return;
-    }
 
     try {
       if (id) {

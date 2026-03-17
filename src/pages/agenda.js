@@ -25,10 +25,20 @@ const AgendaPage = {
     </div>`;
 
     this.checkGoogleStatus();
-    // Atraso curto para garantir que o DOM renderizou a altura corretamente antes do FullCalendar calcular
-    setTimeout(() => {
+    
+    // Tentativa inicial de carregar o calendário
+    this.initCalendarWithRetry(0);
+  },
+
+  initCalendarWithRetry(attempts) {
+    if (typeof FullCalendar !== 'undefined') {
       this.initCalendar();
-    }, 50);
+    } else if (attempts < 5) {
+      console.log(`Aguardando biblioteca FullCalendar... (tentativa ${attempts + 1})`);
+      setTimeout(() => this.initCalendarWithRetry(attempts + 1), 500);
+    } else {
+      this.initCalendar(); // Mostrará o erro caso falhe após 5 tentativas
+    }
   },
 
   async checkGoogleStatus() {

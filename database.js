@@ -20,7 +20,7 @@ class Database {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS clientes (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL,
+        nome TEXT DEFAULT 'Sem Nome',
         telefone TEXT,
         email TEXT,
         endereco TEXT,
@@ -35,7 +35,7 @@ class Database {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         cliente_id INTEGER NOT NULL,
         servico_id INTEGER,
-        titulo TEXT NOT NULL,
+        titulo TEXT DEFAULT 'Sem Título',
         descricao TEXT,
         status TEXT DEFAULT 'rascunho',
         mao_de_obra REAL DEFAULT 0,
@@ -50,7 +50,7 @@ class Database {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         orcamento_id INTEGER NOT NULL,
         material_id INTEGER,
-        descricao TEXT NOT NULL,
+        descricao TEXT DEFAULT 'Novo Item',
         quantidade REAL DEFAULT 1,
         valor_unitario REAL DEFAULT 0,
         categoria TEXT DEFAULT 'material',
@@ -64,7 +64,7 @@ class Database {
         servico_pai_id INTEGER,
         orcamento_id INTEGER,
         cliente_id INTEGER NOT NULL,
-        titulo TEXT NOT NULL,
+        titulo TEXT DEFAULT 'Sem Título',
         descricao TEXT,
         status TEXT DEFAULT 'pendente',
         prioridade TEXT DEFAULT 'normal',
@@ -81,7 +81,7 @@ class Database {
 
       CREATE TABLE IF NOT EXISTS materiais (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nome TEXT NOT NULL,
+        nome TEXT DEFAULT 'Material sem Nome',
         categoria TEXT DEFAULT 'geral',
         unidade TEXT DEFAULT 'un',
         preco_custo REAL DEFAULT 0,
@@ -95,7 +95,7 @@ class Database {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         tipo TEXT NOT NULL DEFAULT 'materiais',
         categoria TEXT DEFAULT 'outros',
-        descricao TEXT NOT NULL,
+        descricao TEXT DEFAULT 'Sem Descrição',
         valor REAL NOT NULL DEFAULT 0,
         data DATE NOT NULL,
         observacoes TEXT,
@@ -107,7 +107,7 @@ class Database {
 
       CREATE TABLE IF NOT EXISTS eventos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titulo TEXT NOT NULL,
+        titulo TEXT DEFAULT 'Sem Título',
         descricao TEXT,
         data_inicio DATETIME NOT NULL,
         data_fim DATETIME NOT NULL,
@@ -119,7 +119,7 @@ class Database {
 
       CREATE TABLE IF NOT EXISTS metas (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        titulo TEXT NOT NULL,
+        titulo TEXT DEFAULT 'Meta sem Nome',
         valor_alvo REAL NOT NULL,
         status TEXT DEFAULT 'pendente',
         icone TEXT DEFAULT 'target',
@@ -128,7 +128,7 @@ class Database {
 
       CREATE TABLE IF NOT EXISTS custos_fixos (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        descricao TEXT NOT NULL,
+        descricao TEXT DEFAULT 'Despesa sem Nome',
         valor REAL NOT NULL,
         dia_vencimento INTEGER NOT NULL,
         categoria TEXT DEFAULT 'outros',
@@ -387,29 +387,28 @@ class Database {
 
     if (!orcamento) return;
 
-    const valorTotal = itemData.quantidade * itemData.valor_unitario;
-    if (valorTotal <= 0) {
-      this.db.prepare('DELETE FROM custos WHERE orcamento_item_id = ?').run(itemId);
-      return;
-    }
-
-    const dataCusto = orcamento.criado_em.split(' ')[0]; // YYYY-MM-DD
-    const descricaoCusto = `[Orç: ${orcamento.titulo}] ${itemData.descricao}`;
-
-    // Get current cost from material if linked
-    let valorCusto = itemData.quantidade * itemData.valor_unitario;
+    // Determina o valor do custo
+    let valorCusto = itemData.quantidade * itemData.valor_unitario; // Default: preço de venda
     if (itemData.material_id) {
       const material = this.db.prepare('SELECT preco_custo FROM materiais WHERE id = ?').get(itemData.material_id);
-      if (material && material.preco_custo > 0) {
-        valorCusto = itemData.quantidade * material.preco_custo;
+      // Se existe o material e tem preço de custo (mesmo que seja 0, se o ID está presente usamos a lógica de custo)
+      if (material) {
+        valorCusto = itemData.quantidade * (material.preco_custo || 0);
       }
     }
 
-    const custoExistente = this.db.prepare('SELECT id FROM custos WHERE orcamento_item_id = ?').get(itemId);
+    // Se o valor total do custo for 0 e não houver descrição útil, podemos ignorar ou manter rascunho
+    // Mas para orçamento faz sentido manter para o usuário ver na lista de custos previstos
+    
+    const dataCusto = orcamento.criado_em ? orcamento.criado_em.split(' ')[0] : new Date().toISOString().slice(0, 10);
+    const descricaoCusto = `[Orç: ${orcamento.titulo}] ${itemData.descricao}`;
+
+    const custoExistente = this.db.prepare('SELECT id, status FROM custos WHERE orcamento_item_id = ?').get(itemId);
 
     if (custoExistente) {
+      // IMPORTANTE: Mantém o status atual (se já estiver pago, continua pago)
       this.db.prepare(`
-        UPDATE custos SET descricao=?, valor=?, data=?, status='previsto'
+        UPDATE custos SET descricao=?, valor=?, data=?
         WHERE orcamento_item_id=?
       `).run(descricaoCusto, valorCusto, dataCusto, itemId);
     } else {

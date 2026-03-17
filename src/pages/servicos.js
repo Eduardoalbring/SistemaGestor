@@ -234,7 +234,7 @@ const ServicosPage = {
     const dados = {
       cliente_id: parseInt(document.getElementById('serv-cliente').value),
       orcamento_id: budgetVal ? parseInt(budgetVal) : null,
-      titulo: document.getElementById('serv-titulo').value.trim(),
+      titulo: document.getElementById('serv-titulo').value.trim() || 'Sem Título',
       descricao: document.getElementById('serv-descricao').value.trim(),
       prioridade: document.getElementById('serv-prioridade').value,
       data_inicio: document.getElementById('serv-data-inicio').value || null,
@@ -243,7 +243,6 @@ const ServicosPage = {
     };
 
     if (!dados.cliente_id) return Toast.warning('Selecione um cliente');
-    if (!dados.titulo) return Toast.warning('Título é obrigatório');
 
     try {
       if (id) {
@@ -544,8 +543,6 @@ const ServicosPage = {
       data_fim: document.getElementById('serv-data-fim').value || null,
       status: 'pendente'
     };
-
-    if (!dados.titulo) return Toast.warning('Título é obrigatório');
 
     try {
       const result = await electronAPI.servicos.criar(dados);

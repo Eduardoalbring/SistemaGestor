@@ -389,13 +389,12 @@ const CustosPage = {
       status,
       parcelas,
       data: document.getElementById('custo-data').value,
-      descricao: document.getElementById('custo-descricao').value.trim(),
+      descricao: document.getElementById('custo-descricao').value.trim() || 'Sem Descrição',
       valor: parseFloat(document.getElementById('custo-valor').value) || 0,
       categoria: document.getElementById('custo-categoria').value,
       observacoes: document.getElementById('custo-observacoes').value.trim()
     };
 
-    if (!dados.descricao) return Toast.warning('A descrição é obrigatória');
     if (dados.valor <= 0) return Toast.warning('O valor deve ser maior que zero');
     if (!dados.data) return Toast.warning('A data é obrigatória');
 

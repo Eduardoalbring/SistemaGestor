@@ -357,15 +357,13 @@ const MateriaisPage = {
 
   async saveForm(id) {
     const dados = {
-      nome: document.getElementById('mat-nome').value.trim(),
+      nome: document.getElementById('mat-nome').value.trim() || 'Material sem Nome',
       categoria: document.getElementById('mat-categoria').value,
       unidade: document.getElementById('mat-unidade').value,
       preco_custo: parseFloat(document.getElementById('mat-custo').value) || 0,
       preco_venda: parseFloat(document.getElementById('mat-venda').value) || 0,
       descricao: document.getElementById('mat-descricao').value.trim(),
     };
-
-    if (!dados.nome) return Toast.warning('Nome é obrigatório');
 
     try {
       if (id) {

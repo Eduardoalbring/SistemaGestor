@@ -148,14 +148,13 @@ const OrcamentosPage = {
   async saveForm(id) {
     const dados = {
       cliente_id: parseInt(document.getElementById('orc-cliente').value),
-      titulo: document.getElementById('orc-titulo').value.trim(),
+      titulo: document.getElementById('orc-titulo').value.trim() || 'Sem Título',
       descricao: document.getElementById('orc-descricao').value.trim(),
       mao_de_obra: parseFloat(document.getElementById('orc-mao-obra').value) || 0,
       desconto: parseFloat(document.getElementById('orc-desconto').value) || 0,
     };
 
     if (!dados.cliente_id) return Toast.warning('Selecione um cliente');
-    if (!dados.titulo) return Toast.warning('Título é obrigatório');
 
     try {
       if (id) {
@@ -215,6 +214,9 @@ const OrcamentosPage = {
                 <option value="rejeitado" ${orc.status === 'rejeitado' ? 'selected' : ''}>Rejeitado</option>
               </select>
             </div>
+            <button class="btn btn-sm btn-primary" onclick="OrcamentosPage.exportToPDF(${orc.id})">
+              ${Helpers.icons.printer} Exportar PDF
+            </button>
             ${orc.servico_id ? `<button class="btn btn-sm btn-secondary" onclick="ServicosPage.viewDetails(${orc.servico_id})">${Helpers.icons.wrench} Ver Serviço</button>` : ''}
           </div>
         </div>
@@ -412,7 +414,7 @@ const OrcamentosPage = {
           ${materiais.length === 0
             ? '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">Nenhum material cadastrado ainda</p>'
             : materiais.map(m => `
-              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia})">
+              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia}, ${m.id})">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; cursor: pointer; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
                   <div>
                     <div style="font-weight: 600; font-size: var(--font-size-sm);">${m.nome}</div>
@@ -436,7 +438,7 @@ const OrcamentosPage = {
     });
   },
 
-  async _selectMaterial(itemId, orcamentoId, nome, valor) {
+  async _selectMaterial(itemId, orcamentoId, nome, valor, materialId) {
     Modal.close();
     try {
       // Find the item row and update inputs
@@ -445,15 +447,15 @@ const OrcamentosPage = {
         const inputs = container.querySelectorAll('input');
         inputs[0].value = nome;
         inputs[2].value = valor;
+        container.dataset.materialId = materialId;
       }
       await electronAPI.orcamentoItens.atualizar(itemId, {
-        material_id: id,
+        material_id: materialId,
         descricao: nome,
         quantidade: container ? parseFloat(container.querySelectorAll('input')[1].value) || 1 : 1,
         valor_unitario: valor,
         categoria: 'material'
       });
-      if (container) container.dataset.materialId = id;
       Toast.success(`Material "${nome}" aplicado ao item`);
       this.viewDetails(orcamentoId);
     } catch (err) {
@@ -509,19 +511,15 @@ const OrcamentosPage = {
       if (container) {
         const inputs = container.querySelectorAll('input');
         inputs[2].value = exact.valor_referencia;
+        container.dataset.materialId = exact.id; // Crucial fix: update materialId in DOM
         this.updateItem(itemId, 'valor_unitario', exact.valor_referencia);
       }
     }
 
-    // Monta lista de sugestões conforme digita
-    if (!term) {
-      this.clearMaterialSuggestions(itemId);
-      return;
-    }
-
-    const matches = this._materiaisCache
-      .filter(m => m.nome.toLowerCase().includes(term))
-      .slice(0, 8);
+    // Monta lista de sugestões conforme digita ou foca
+    const matches = term 
+      ? this._materiaisCache.filter(m => m.nome.toLowerCase().includes(term)).slice(0, 15)
+      : this._materiaisCache.slice(0, 15); // Mostra primeiros 15 se vazio
 
     const container = document.querySelector(`.material-suggestions[data-item-id="${itemId}"]`);
     if (!container) return;
@@ -531,16 +529,25 @@ const OrcamentosPage = {
       return;
     }
 
-    container.innerHTML = matches.map(m => `
-      <button type="button"
-              style="width: 100%; text-align: left; padding: 8px 10px; border: none; background: transparent; cursor: pointer; display: flex; justify-content: space-between; align-items: center;"
-              onmouseover="this.style.background='var(--bg-secondary)'"
-              onmouseout="this.style.background='transparent'"
-              onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.id})">
-        <span style="font-size: 0.8rem; color: var(--text-primary);">${m.nome}</span>
-        <span style="font-size: 0.75rem; color: var(--accent-primary); font-weight: 600;">${Helpers.formatCurrency(m.preco_venda || m.valor_referencia)}</span>
-      </button>
-    `).join('');
+    container.innerHTML = `
+      <div style="padding: 6px 10px; font-size: 0.65rem; color: var(--text-tertiary); text-transform: uppercase; font-weight: 700; border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between;">
+        <span>${term ? 'Resultados' : 'Materiais Cadastrados'}</span>
+        <span>Preço</span>
+      </div>
+      ${matches.map(m => `
+        <button type="button"
+                style="width: 100%; text-align: left; padding: 10px 12px; border: none; background: transparent; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03);"
+                onmouseover="this.style.background='var(--bg-tertiary)'"
+                onmouseout="this.style.background='transparent'"
+                onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.id})">
+          <div>
+            <div style="font-size: 0.8rem; color: var(--text-primary); font-weight: 500;">${m.nome}</div>
+            <div style="font-size: 0.65rem; color: var(--text-tertiary);">${m.categoria} · ${m.unidade}</div>
+          </div>
+          <span style="font-size: 0.8rem; color: var(--accent-primary); font-weight: 600;">${Helpers.formatCurrency(m.preco_venda || m.valor_referencia)}</span>
+        </button>
+      `).join('')}
+    `;
     container.style.display = 'block';
   },
 
@@ -564,5 +571,19 @@ const OrcamentosPage = {
     // Salva alteração do item com o preço do material
     this.updateItem(itemId, 'valor_unitario', valor);
     this.clearMaterialSuggestions(itemId);
+  },
+
+  async exportToPDF(id) {
+    try {
+      const orc = await electronAPI.orcamentos.buscar(id);
+      if (!orc) return Toast.error('Orçamento não encontrado');
+      
+      Toast.info('Gerando PDF...');
+      await PDFExport.generateOrcamento(orc);
+      Toast.success('PDF gerado com sucesso!');
+    } catch (err) {
+      console.error('Erro ao exportar PDF:', err);
+      Toast.error('Erro ao gerar PDF');
+    }
   }
 };

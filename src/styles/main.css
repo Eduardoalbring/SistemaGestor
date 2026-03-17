@@ -394,10 +394,13 @@ body {
 .metric-card .metric-icon.purple { background: var(--bg-tertiary); color: var(--text-secondary); }
 
 .metric-card .metric-value {
-  font-size: var(--font-size-2xl);
+  font-size: 1.25rem;
   font-weight: 800;
   color: var(--text-primary);
   line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .metric-card .metric-label {

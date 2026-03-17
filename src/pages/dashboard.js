@@ -10,7 +10,7 @@ const DashboardPage = {
           <p class="page-subtitle">Visão geral do seu negócio</p>
         </div>
       </div>
-      <div class="metrics-grid" id="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+      <div class="metrics-grid" id="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));">
         <div class="metric-card skeleton" style="height:120px"></div>
         <div class="metric-card skeleton" style="height:120px"></div>
         <div class="metric-card skeleton" style="height:120px"></div>

@@ -1,5 +1,8 @@
 node_modules/
 dist/
+dist_final/
+dist_new/
+dist_final_fixed/
 *.db
 *.db-journal
 *.db-wal
