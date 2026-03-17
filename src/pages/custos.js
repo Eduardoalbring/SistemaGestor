@@ -504,14 +504,8 @@ const CustosPage = {
           </div>
         `);
       } else {
-        Modal.confirm(`Tem certeza que deseja excluir o lançamento <strong>${desc}</strong>?`, async () => {
-          try {
-            await electronAPI.custos.excluir(id);
-            Toast.success('Custo excluído com sucesso');
-            this.loadData();
-          } catch (err) {
-            Toast.error('Erro ao excluir custo');
-          }
+        Modal.confirm(`Tem certeza que deseja excluir o lançamento <strong>${desc}</strong>?`, () => {
+          this.deleteSingle(id, true);
         });
       }
     } catch (err) {
@@ -520,12 +514,27 @@ const CustosPage = {
     }
   },
 
-  async deleteSingle(id) {
+  async deleteSingle(id, reload = true) {
     try {
       await electronAPI.custos.excluir(id);
-      Toast.success('Parcela excluída');
-      Modal.close();
-      this.loadData();
+      if (reload) {
+        Toast.success('Custo movido para a lixeira', {
+          action: {
+            label: 'Desfazer',
+            callback: async () => {
+              try {
+                await electronAPI.custos.restaurar(id);
+                Toast.success('Custo restaurado!');
+                this.loadData();
+              } catch (e) {
+                Toast.error('Erro ao restaurar');
+              }
+            }
+          }
+        });
+        Modal.close();
+        this.loadData();
+      }
     } catch (err) {
       Toast.error('Erro ao excluir parcela');
     }
@@ -534,7 +543,20 @@ const CustosPage = {
   async deleteGroup(grupoId, desc) {
     try {
       await electronAPI.custos.excluirPorGrupo(grupoId);
-      Toast.success('Compra completa excluída');
+      Toast.success('Compra completa movida para a lixeira', {
+        action: {
+          label: 'Desfazer',
+          callback: async () => {
+            try {
+              await electronAPI.custos.restaurarGrupo(grupoId);
+              Toast.success('Compra restaurada!');
+              this.loadData();
+            } catch (e) {
+              Toast.error('Erro ao restaurar');
+            }
+          }
+        }
+      });
       Modal.close();
       this.loadData();
     } catch (err) {

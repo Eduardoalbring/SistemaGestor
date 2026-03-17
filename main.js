@@ -148,6 +148,8 @@ ipcMain.handle('custos:excluirPorMeta', (e, metaId) => db.excluirCustosPorMeta(m
 ipcMain.handle('custos:excluirPorGrupo', (e, grupoId) => db.excluirCustosPorGrupo(grupoId));
 ipcMain.handle('custos:getGrupoInfo', (e, grupoId) => db.getGrupoInfo(grupoId));
 ipcMain.handle('custos:marcarStatusGrupo', (e, grupoId, status, qtd) => db.marcarStatusGrupo(grupoId, status, qtd));
+ipcMain.handle('custos:restaurar', (_, id) => db.restaurarCusto(id));
+ipcMain.handle('custos:restaurarGrupo', (_, grupoId) => db.restaurarCustosPorGrupo(grupoId));
 
 // ============ CUSTOS FIXOS ============
 ipcMain.handle('custosFixos:listar', () => db.listarCustosFixos());

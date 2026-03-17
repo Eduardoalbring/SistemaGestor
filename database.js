@@ -103,6 +103,8 @@ class Database {
         orcamento_item_id INTEGER,
         meta_id INTEGER,
         grupo_id TEXT,
+        deletado INTEGER DEFAULT 0,
+        deletado_em DATETIME,
         criado_em DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (orcamento_item_id) REFERENCES orcamento_itens(id) ON DELETE CASCADE,
         FOREIGN KEY (meta_id) REFERENCES metas(id) ON DELETE CASCADE
@@ -170,7 +172,14 @@ class Database {
       this.db.prepare("ALTER TABLE custos ADD COLUMN grupo_id TEXT").run();
     } catch (e) { /* Coluna já existe */ }
 
-    // Novas colunas para controle de compras pelo cliente
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN deletado INTEGER DEFAULT 0").run();
+    } catch (e) { }
+
+    try {
+      this.db.prepare("ALTER TABLE custos ADD COLUMN deletado_em DATETIME").run();
+    } catch (e) { }
+
     try {
       this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN comprado_pelo_cliente INTEGER DEFAULT 0").run();
     } catch (e) { /* Coluna já existe */ }
@@ -418,8 +427,9 @@ class Database {
 
     if (custoExistente) {
       // IMPORTANTE: Mantém o status atual (se já estiver pago, continua pago)
+      // Se estava deletado, restaura
       this.db.prepare(`
-        UPDATE custos SET descricao=?, valor=?, data=?
+        UPDATE custos SET descricao=?, valor=?, data=?, deletado=0, deletado_em=NULL
         WHERE orcamento_item_id=?
       `).run(descricaoCusto, valorCusto, dataCusto, itemId);
     } else {
@@ -654,7 +664,7 @@ class Database {
 
     const custosMateriaisMes = this.db.prepare(`
       SELECT COALESCE(SUM(valor), 0) as total FROM custos 
-      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND strftime('%Y-%m', data) = ?
+      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND strftime('%Y-%m', data) = ? AND deletado = 0
     `).get(mesAtual).total;
 
     const lucroMes = faturamentoMateriaisMes - custosMateriaisMes;
@@ -668,7 +678,7 @@ class Database {
       faturamentoMateriais: faturamentoMateriaisTotal,
       faturamentoMes: faturamentoMesTotal,
       faturamentoMateriaisMes,
-      custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND strftime('%Y-%m', data) = ?").get(mesAtual).total,
+      custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND strftime('%Y-%m', data) = ? AND deletado = 0").get(mesAtual).total,
       lucroMes,
       orcamentosPorStatus,
       servicosPorStatus
@@ -739,7 +749,7 @@ class Database {
       SELECT strftime('%Y-%m', data) as mes,
         COALESCE(SUM(valor), 0) as total
       FROM custos
-      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL
+      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND deletado = 0
         AND data >= date('now', '-12 months')
       GROUP BY mes
       ORDER BY mes DESC
@@ -760,14 +770,14 @@ class Database {
       clientesPorMes, 
       faturamentoPorMes, 
       faturamentoMateriaisPorMes,
-      custosPorMes: this.db.prepare("SELECT strftime('%Y-%m', data) as mes, COALESCE(SUM(valor), 0) as total FROM custos WHERE status='pago' AND data >= date('now', '-12 months') GROUP BY mes ORDER BY mes DESC").all(),
+      custosPorMes: this.db.prepare("SELECT strftime('%Y-%m', data) as mes, COALESCE(SUM(valor), 0) as total FROM custos WHERE status='pago' AND deletado = 0 AND data >= date('now', '-12 months') GROUP BY mes ORDER BY mes DESC").all(),
       lucroPorMes 
     };
   }
 
   // ============ CUSTOS ============
   listarCustos(filtros = {}) {
-    let query = 'SELECT * FROM custos WHERE 1=1';
+    let query = 'SELECT * FROM custos WHERE deletado = 0';
     const params = [];
 
     if (filtros.busca) {
@@ -802,8 +812,8 @@ class Database {
 
   getGrupoInfo(grupoId) {
     if (!grupoId) return { total: 1, pendentes: 0 };
-    const total = this.db.prepare('SELECT COUNT(*) as count FROM custos WHERE grupo_id = ?').get(grupoId).count;
-    const pendentes = this.db.prepare("SELECT COUNT(*) as count FROM custos WHERE grupo_id = ? AND status = 'previsto'").get(grupoId).count;
+    const total = this.db.prepare('SELECT COUNT(*) as count FROM custos WHERE grupo_id = ? AND deletado = 0').get(grupoId).count;
+    const pendentes = this.db.prepare("SELECT COUNT(*) as count FROM custos WHERE grupo_id = ? AND status = 'previsto' AND deletado = 0").get(grupoId).count;
     return { total, pendentes };
   }
 
@@ -898,17 +908,27 @@ class Database {
   }
 
   excluirCusto(id) {
-    this.db.prepare('DELETE FROM custos WHERE id = ?').run(id);
+    this.db.prepare("UPDATE custos SET deletado = 1, deletado_em = CURRENT_TIMESTAMP WHERE id = ?").run(id);
+    return { success: true };
+  }
+
+  restaurarCusto(id) {
+    this.db.prepare("UPDATE custos SET deletado = 0, deletado_em = NULL WHERE id = ?").run(id);
     return { success: true };
   }
 
   excluirCustosPorMeta(metaId) {
-    this.db.prepare('DELETE FROM custos WHERE meta_id = ?').run(metaId);
+    this.db.prepare("UPDATE custos SET deletado = 1, deletado_em = CURRENT_TIMESTAMP WHERE meta_id = ?").run(metaId);
     return { success: true };
   }
 
   excluirCustosPorGrupo(grupoId) {
-    this.db.prepare('DELETE FROM custos WHERE grupo_id = ?').run(grupoId);
+    this.db.prepare("UPDATE custos SET deletado = 1, deletado_em = CURRENT_TIMESTAMP WHERE grupo_id = ?").run(grupoId);
+    return { success: true };
+  }
+
+  restaurarCustosPorGrupo(grupoId) {
+    this.db.prepare("UPDATE custos SET deletado = 0, deletado_em = NULL WHERE grupo_id = ?").run(grupoId);
     return { success: true };
   }
 
@@ -954,7 +974,7 @@ class Database {
 
     // Checa se já existe o lançamento de cada custo fixo neste mês (baseado na descrição exata)
     const getExistente = this.db.prepare(`
-      SELECT id FROM custos WHERE descricao = ? AND strftime('%Y-%m', data) = ?
+      SELECT id FROM custos WHERE descricao = ? AND strftime('%Y-%m', data) = ? AND deletado = 0
     `);
 
     this.db.transaction(() => {
@@ -985,7 +1005,7 @@ class Database {
         COUNT(*) as qtd,
         SUM(valor) as total
       FROM custos
-      WHERE data >= date('now', '-12 months')
+      WHERE data >= date('now', '-12 months') AND deletado = 0
       GROUP BY mes, tipo
       ORDER BY mes DESC
     `).all();
@@ -995,7 +1015,7 @@ class Database {
     const resumoMesAtual = this.db.prepare(`
       SELECT tipo, SUM(valor) as total, COUNT(*) as qtd
       FROM custos
-      WHERE strftime('%Y-%m', data) = ?
+      WHERE strftime('%Y-%m', data) = ? AND deletado = 0
       GROUP BY tipo
     `).all(mesAtual);
 
@@ -1003,7 +1023,7 @@ class Database {
     const topCategorias = this.db.prepare(`
       SELECT categoria, tipo, SUM(valor) as total, COUNT(*) as qtd
       FROM custos
-      WHERE strftime('%Y-%m', data) = ? AND status = 'pago'
+      WHERE strftime('%Y-%m', data) = ? AND status = 'pago' AND deletado = 0
       GROUP BY categoria, tipo
       ORDER BY total DESC
       LIMIT 10
@@ -1013,7 +1033,7 @@ class Database {
     const previstosMesAtual = this.db.prepare(`
       SELECT SUM(valor) as total, COUNT(*) as qtd
       FROM custos
-      WHERE strftime('%Y-%m', data) = ? AND status = 'previsto'
+      WHERE strftime('%Y-%m', data) = ? AND status = 'previsto' AND deletado = 0
     `).get(mesAtual);
 
     // Faturamento do mês atual (orçamentos aprovados)
@@ -1156,8 +1176,8 @@ class Database {
     // Conta TODOS os custos já registrados (EXCLUINDO os vinculados a metas para evitar dup)
     // Na verdade, o ideal é: Saldo = (Faturamento Total) - (Todos os Custos)
     // Porque o custo da meta já está na tabela de custos.
-    const custos_sem_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL").get();
-    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL").get();
+    const custos_sem_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND deletado = 0").get();
+    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get();
     
     const saldo = (fat?.total || 0) - (custos_sem_meta?.total || 0) - (custos_com_meta?.total || 0);
 
@@ -1177,7 +1197,7 @@ class Database {
         SUM(valor) as total,
         COUNT(*) as qtd
       FROM custos
-      WHERE status = 'pago'
+      WHERE status = 'pago' AND deletado = 0
       GROUP BY mes, tipo
       ORDER BY mes DESC
     `).all();

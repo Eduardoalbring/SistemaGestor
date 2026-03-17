@@ -31,7 +31,7 @@
     "cscLink": null
   },
   "dependencies": {
-    "better-sqlite3": "^11.0.0",
+    "better-sqlite3": "^11.10.0",
     "dotenv": "^17.3.1",
     "googleapis": "^171.4.0"
   },
