@@ -179,21 +179,37 @@ const MateriaisPage = {
         <div class="form-group">
           <label class="form-label">Categorias Padrão</label>
           <div style="display: flex; flex-wrap: wrap; gap: 8px;">
-            ${this.defaultCategorias.map(c => {
-              const isDeleted = this.getDeletedDefaultCategorias().includes(c.value);
+            ${this.defaultCategorias.filter(c => !this.getDeletedDefaultCategorias().includes(c.value)).map(c => {
               return `
-                <div style="display: flex; align-items: center; gap: 4px; opacity: ${isDeleted ? '0.5' : '1'};">
-                  <span class="filter-chip ${!isDeleted ? 'active' : ''}" style="pointer-events: none;">${c.label}</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                  <span class="filter-chip active" style="pointer-events: none;">${c.label}</span>
                   <button class="btn-icon" style="width:24px;height:24px; font-size: 10px;" 
                           onclick="MateriaisPage._toggleDefaultCategory('${c.value}')" 
-                          title="${isDeleted ? 'Restaurar' : 'Remover'}">
-                    ${isDeleted ? Helpers.icons.plus : Helpers.icons.trash}
+                          title="Remover">
+                    ${Helpers.icons.trash}
                   </button>
                 </div>
               `;
-            }).join('')}
+            }).join('') || '<p style="color: var(--text-tertiary); font-size: var(--font-size-sm);">Todas as categorias padrão foram removidas.</p>'}
           </div>
         </div>
+
+        ${this.getDeletedDefaultCategorias().length > 0 ? `
+        <div class="form-group" style="margin-top: var(--spacing-md);">
+          <label class="form-label" style="font-size: 0.75rem; opacity: 0.7;">Restaurar Categorias Padrão</label>
+          <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+            ${this.defaultCategorias.filter(c => this.getDeletedDefaultCategorias().includes(c.value)).map(c => `
+              <div style="display: flex; align-items: center; gap: 4px; opacity: 0.6;">
+                <span class="filter-chip" style="pointer-events: none; border-style: dashed;">${c.label}</span>
+                <button class="btn-icon" style="width:24px;height:24px; font-size: 10px;" 
+                        onclick="MateriaisPage._toggleDefaultCategory('${c.value}')" title="Restaurar">
+                  ${Helpers.icons.plus}
+                </button>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+        ` : ''}
 
         <div class="form-group" style="margin-top: var(--spacing-lg);">
           <label class="form-label">Categorias Personalizadas</label>
