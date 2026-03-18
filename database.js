@@ -53,6 +53,7 @@ class Database {
         descricao TEXT DEFAULT 'Novo Item',
         quantidade REAL DEFAULT 1,
         valor_unitario REAL DEFAULT 0,
+        preco_custo_unitario REAL DEFAULT 0,
         categoria TEXT DEFAULT 'material',
         comprado_pelo_cliente INTEGER DEFAULT 0,
         FOREIGN KEY (orcamento_id) REFERENCES orcamentos(id) ON DELETE CASCADE,
@@ -197,8 +198,8 @@ class Database {
     } catch (e) { }
 
     try {
-      this.db.prepare("ALTER TABLE custos ADD COLUMN orcamento_item_id INTEGER").run();
-    } catch (e) { /* Coluna já existe */ }
+      this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN preco_custo_unitario REAL DEFAULT 0").run();
+    } catch (e) { }
 
     // Roda verificação/geração de despesas fixas para o mês atual
     try {
@@ -331,6 +332,14 @@ class Database {
     return this.buscarOrcamento(id);
   }
 
+  atualizarOrcamentoField(id, field, value) {
+    const allowedFields = ['mao_de_obra', 'desconto', 'titulo', 'descricao'];
+    if (!allowedFields.includes(field)) throw new Error('Campo não permitido');
+    
+    this.db.prepare(`UPDATE orcamentos SET ${field}=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?`).run(value, id);
+    return this.buscarOrcamento(id);
+  }
+
   atualizarStatusOrcamento(id, status) {
     this.db.prepare('UPDATE orcamentos SET status=?, atualizado_em=CURRENT_TIMESTAMP WHERE id=?').run(status, id);
     return this.buscarOrcamento(id);
@@ -348,8 +357,8 @@ class Database {
 
   criarItemOrcamento(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO orcamento_itens (orcamento_id, material_id, descricao, quantidade, valor_unitario, categoria, comprado_pelo_cliente)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orcamento_itens (orcamento_id, material_id, descricao, quantidade, valor_unitario, preco_custo_unitario, categoria, comprado_pelo_cliente)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       dados.orcamento_id,
@@ -357,6 +366,7 @@ class Database {
       dados.descricao, 
       dados.quantidade || 1, 
       dados.valor_unitario || 0, 
+      dados.preco_custo_unitario || 0,
       dados.categoria || 'material',
       dados.comprado_pelo_cliente || 0
     );
@@ -367,7 +377,7 @@ class Database {
 
   atualizarItemOrcamento(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE orcamento_itens SET material_id=?, descricao=?, quantidade=?, valor_unitario=?, categoria=?, comprado_pelo_cliente=?
+      UPDATE orcamento_itens SET material_id=?, descricao=?, quantidade=?, valor_unitario=?, preco_custo_unitario=?, categoria=?, comprado_pelo_cliente=?
       WHERE id=?
     `);
     stmt.run(
@@ -375,6 +385,7 @@ class Database {
       dados.descricao, 
       dados.quantidade, 
       dados.valor_unitario, 
+      dados.preco_custo_unitario || 0,
       dados.categoria, 
       dados.comprado_pelo_cliente || 0,
       id
@@ -408,14 +419,24 @@ class Database {
     if (!orcamento) return;
 
     // Determina o valor do custo
-    let valorCusto = itemData.quantidade * itemData.valor_unitario; // Default: preço de venda
-    if (itemData.material_id) {
-      const material = this.db.prepare('SELECT preco_custo FROM materiais WHERE id = ?').get(itemData.material_id);
-      // Se existe o material e tem preço de custo (mesmo que seja 0, se o ID está presente usamos a lógica de custo)
-      if (material) {
-        valorCusto = itemData.quantidade * (material.preco_custo || 0);
+    let valorUnitarioCusto = itemData.preco_custo_unitario;
+    
+    // Se o custo unitário não foi informado manualmente (é 0)
+    if (!valorUnitarioCusto || valorUnitarioCusto === 0) {
+      if (itemData.material_id) {
+        const material = this.db.prepare('SELECT preco_custo FROM materiais WHERE id = ?').get(itemData.material_id);
+        if (material) {
+          valorUnitarioCusto = material.preco_custo || 0;
+        }
       }
     }
+
+    // Fallback final: se ainda for 0, usa o valor de venda (para itens manuais onde esqueceu de por custo)
+    if (!valorUnitarioCusto || valorUnitarioCusto === 0) {
+      valorUnitarioCusto = itemData.valor_unitario || 0;
+    }
+
+    const valorCusto = itemData.quantidade * valorUnitarioCusto;
 
     // Se o valor total do custo for 0 e não houver descrição útil, podemos ignorar ou manter rascunho
     // Mas para orçamento faz sentido manter para o usuário ver na lista de custos previstos
@@ -538,6 +559,16 @@ class Database {
   }
 
   excluirServico(id) {
+    const servico = this.buscarServico(id);
+    if (servico && servico.orcamento_id) {
+      // Deleta os custos vinculados aos itens do orçamento deste serviço
+      this.db.prepare(`
+        DELETE FROM custos 
+        WHERE orcamento_item_id IN (
+          SELECT id FROM orcamento_itens WHERE orcamento_id = ?
+        )
+      `).run(servico.orcamento_id);
+    }
     this.db.prepare('DELETE FROM servicos WHERE id = ?').run(id);
     return { success: true };
   }
@@ -667,7 +698,7 @@ class Database {
       WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND strftime('%Y-%m', data) = ? AND deletado = 0
     `).get(mesAtual).total;
 
-    const lucroMes = faturamentoMateriaisMes - custosMateriaisMes;
+    const lucroMes = faturamentoMesTotal - custosMateriaisMes;
 
     return {
       totalClientes,
@@ -761,9 +792,9 @@ class Database {
     const todosMeses = [...new Set([...faturamentoMateriaisPorMes.map(f => f.mes), ...custosMateriaisPorMes.map(c => c.mes)])].sort().reverse();
     
     todosMeses.forEach(mes => {
-      const fatMat = faturamentoMateriaisPorMes.find(f => f.mes === mes)?.total || 0;
+      const fatTotal = faturamentoPorMes.find(f => f.mes === mes)?.total || 0;
       const custoMat = custosMateriaisPorMes.find(c => c.mes === mes)?.total || 0;
-      lucroPorMes.push({ mes, total: fatMat - custoMat });
+      lucroPorMes.push({ mes, total: fatTotal - custoMat });
     });
 
     return { 

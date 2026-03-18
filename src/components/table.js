@@ -26,7 +26,7 @@ const Table = {
           ${data.map(row => `
             <tr>
               ${columns.map(col => `<td>${col.render ? col.render(row) : (row[col.key] || '—')}</td>`).join('')}
-              ${actions ? `<td class="table-actions">${actions(row)}</td>` : ''}
+              ${actions ? `<td><div class="table-actions">${actions(row)}</div></td>` : ''}
             </tr>
           `).join('')}
         </tbody>

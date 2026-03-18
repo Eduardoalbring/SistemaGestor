@@ -1,8 +1,15 @@
-require('dotenv').config();
-const { app, BrowserWindow, ipcMain, shell, Notification } = require('electron');
+try {
+  require('dotenv').config();
+} catch (e) {
+  console.log('dotenv not found, skipping...');
+}
+
 const path = require('path');
 const http = require('http');
 const url = require('url');
+
+const electron = require('electron');
+const { app, BrowserWindow, ipcMain, shell, Notification } = electron;
 const Database = require('./database');
 const GoogleCalendarService = require('./src/utils/googleService');
 

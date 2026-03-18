@@ -4,6 +4,8 @@ const OrcamentosPage = {
   filtros: { busca: '', status: '' },
 
   async render() {
+    this._currentViewingId = null;
+    this._materiaisCache = null; // Reset cache on page load
     const content = document.getElementById('main-content');
     content.innerHTML = `<div class="page-content fade-in">
       <div class="page-header">
@@ -125,16 +127,7 @@ const OrcamentosPage = {
           <label class="form-label">Descrição</label>
           <textarea class="form-textarea" id="orc-descricao" placeholder="Descreva o serviço a ser realizado...">${isEdit ? (orcamento.descricao || '') : ''}</textarea>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label class="form-label">Mão de Obra (R$)</label>
-            <input type="number" class="form-input" id="orc-mao-obra" placeholder="0,00" step="0.01" value="${isEdit ? orcamento.mao_de_obra : '0'}">
-          </div>
-          <div class="form-group">
-            <label class="form-label">Desconto (R$)</label>
-            <input type="number" class="form-input" id="orc-desconto" placeholder="0,00" step="0.01" value="${isEdit ? orcamento.desconto : '0'}">
-          </div>
-        </div>
+      </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Modal.close()">Cancelar</button>
@@ -150,8 +143,6 @@ const OrcamentosPage = {
       cliente_id: parseInt(document.getElementById('orc-cliente').value),
       titulo: document.getElementById('orc-titulo').value.trim() || 'Sem Título',
       descricao: document.getElementById('orc-descricao').value.trim(),
-      mao_de_obra: parseFloat(document.getElementById('orc-mao-obra').value) || 0,
-      desconto: parseFloat(document.getElementById('orc-desconto').value) || 0,
     };
 
     if (!dados.cliente_id) return Toast.warning('Selecione um cliente');
@@ -188,11 +179,8 @@ const OrcamentosPage = {
     try {
       const orc = await electronAPI.orcamentos.buscar(id);
       if (!orc) return Toast.error('Orçamento não encontrado');
-
-      const totalItens = orc.itens
-        .filter(i => !i.comprado_pelo_cliente)
-        .reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
-      const total = totalItens + (orc.mao_de_obra || 0) - (orc.desconto || 0);
+      this._currentViewingId = id;
+      this._materiaisCache = null; // Reset cache to ensure latest materials are available
 
       const content = document.getElementById('main-content');
       content.innerHTML = `<div class="page-content fade-in">
@@ -235,12 +223,13 @@ const OrcamentosPage = {
                 ${Helpers.icons.plus} Adicionar Item
               </button>
             </div>
-            <div class="itens-header" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px 6px 0 0; font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">
+            <div class="itens-header" style="display: grid; grid-template-columns: 1fr 50px 100px 100px 100px 40px 70px; gap: 8px; padding: 8px; background: var(--bg-secondary); border-radius: 6px 6px 0 0; font-size: 0.7rem; font-weight: 700; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px;">
                 <div>Nome / Descrição</div>
                 <div style="text-align: center;">Qtd.</div>
                 <div>Preço Unit.</div>
+                <div>Custo Unit.</div>
                 <div style="text-align: right;">Total</div>
-                <div style="text-align: center;">Cliente</div>
+                <div style="text-align: center;" title="Fornecido pelo Cliente">Cli.</div>
                 <div></div>
             </div>
             <div class="itens-list" id="orc-itens-list">
@@ -251,8 +240,9 @@ const OrcamentosPage = {
                   <p>Adicione materiais e recursos ao orçamento</p>
                 </div>
               ` : orc.itens.map(item => `
-                <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" data-material-id="${item.material_id || ''}" style="display: grid; grid-template-columns: 1fr 80px 120px 100px 100px 48px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
+                <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" data-material-id="${item.material_id || ''}" style="display: grid; grid-template-columns: 1fr 50px 100px 100px 100px 40px 70px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
                   <input type="text" value="${item.descricao}" placeholder="Descrição do item"
+                         list="materiais-list"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
                          oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
                          onfocus="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
@@ -262,9 +252,15 @@ const OrcamentosPage = {
                          style="text-align: center;">
                    <div class="input-prefix-wrapper">
                      <span class="input-prefix-text">R$</span>
-                     <input type="number" value="${item.valor_unitario}" placeholder="0,00" min="0" step="0.01"
+                     <input type="number" value="${item.valor_unitario}" placeholder="Venda" min="0" step="0.01"
                             class="input-with-prefix"
                             onchange="OrcamentosPage.updateItem(${item.id}, 'valor_unitario', this.value)">
+                   </div>
+                   <div class="input-prefix-wrapper">
+                     <span class="input-prefix-text" style="color: var(--color-warning);">R$</span>
+                     <input type="number" value="${item.preco_custo_unitario || 0}" placeholder="Custo" min="0" step="0.01"
+                            class="input-with-prefix" style="color: var(--color-warning);"
+                            onchange="OrcamentosPage.updateItem(${item.id}, 'preco_custo_unitario', this.value)">
                    </div>
                   <div style="text-align: right; font-weight: 600; color: ${item.comprado_pelo_cliente ? 'var(--text-tertiary)' : 'var(--text-primary)'}; font-size: var(--font-size-sm); padding: 0 8px; ${item.comprado_pelo_cliente ? 'text-decoration: line-through;' : ''}">
                     ${Helpers.formatCurrency(item.quantidade * item.valor_unitario)}
@@ -272,9 +268,12 @@ const OrcamentosPage = {
                   <div style="display: flex; justify-content: center;">
                     <input type="checkbox" style="width: 18px; height: 18px; cursor: pointer;" 
                            ${item.comprado_pelo_cliente ? 'checked' : ''} 
-                           onchange="OrcamentosPage.updateItem(${item.id}, 'comprado_pelo_cliente', this.checked ? 1 : 0); OrcamentosPage.viewDetails(${orc.id})">
+                           onchange="OrcamentosPage.updateItem(${item.id}, 'comprado_pelo_cliente', this.checked ? 1 : 0)">
                   </div>
                   <div style="display: flex; gap: 4px; justify-content: flex-end;">
+                    <button class="btn-icon" style="width:28px;height:28px;" onclick="OrcamentosPage.searchMaterial(${item.id}, ${orc.id})" title="Procurar Material">
+                      ${Helpers.icons.search}
+                    </button>
                     <button class="btn-icon" style="width:28px;height:28px;" onclick="OrcamentosPage.removeItem(${item.id}, ${orc.id})" title="Remover">
                       ${Helpers.icons.trash}
                     </button>
@@ -286,36 +285,8 @@ const OrcamentosPage = {
             <datalist id="materiais-list"></datalist>
           </div>
 
-          <div class="orcamento-summary">
-            <div class="summary-card">
-              <div class="card-header"><span class="card-title">Resumo</span></div>
-              <div class="summary-line">
-                <span>Subtotal Materiais</span>
-                <span>${Helpers.formatCurrency(totalItens)}</span>
-              </div>
-              <div class="summary-line">
-                <span>Mão de Obra</span>
-                <span>${Helpers.formatCurrency(orc.mao_de_obra)}</span>
-              </div>
-              <div class="summary-line" style="color: var(--color-danger);">
-                <span>Desconto</span>
-                <span>- ${Helpers.formatCurrency(orc.desconto)}</span>
-              </div>
-              <div class="summary-line total">
-                <span>Total</span>
-                <span>${Helpers.formatCurrency(total)}</span>
-              </div>
-            </div>
-
-            <div style="margin-top: var(--spacing-lg);">
-              <div class="card-header"><span class="card-title">Cliente</span></div>
-              <div class="detail-item" style="margin-top: 8px;">
-                <div class="detail-label">Nome</div>
-                <div class="detail-value">${orc.cliente_nome}</div>
-              </div>
-              ${orc.cliente_telefone ? `<div class="detail-item" style="margin-top: 8px;"><div class="detail-label">Telefone</div><div class="detail-value">${orc.cliente_telefone}</div></div>` : ''}
-              ${orc.cliente_email ? `<div class="detail-item" style="margin-top: 8px;"><div class="detail-label">Email</div><div class="detail-value">${orc.cliente_email}</div></div>` : ''}
-            </div>
+          <div class="orcamento-summary" id="orc-summary-container">
+            ${this.renderSummary(orc)}
           </div>
         </div>
       </div>`;
@@ -328,13 +299,100 @@ const OrcamentosPage = {
     }
   },
 
+  renderSummary(orc) {
+    const totalItens = (orc.itens || [])
+      .filter(i => !i.comprado_pelo_cliente)
+      .reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
+    const total = totalItens + (orc.mao_de_obra || 0) - (orc.desconto || 0);
+
+    return `
+      <div class="summary-card">
+        <div class="card-header"><span class="card-title">Resumo</span></div>
+        <div class="summary-line">
+          <span>Subtotal Materiais</span>
+          <span id="summary-subtotal">${Helpers.formatCurrency(totalItens)}</span>
+        </div>
+        <div class="summary-line" style="align-items: center;">
+          <span>Mão de Obra</span>
+          <div class="summary-input-wrapper">
+             <span class="currency-symbol">R$</span>
+             <input type="number" class="summary-input" value="${orc.mao_de_obra || 0}" step="0.01"
+                    onchange="OrcamentosPage.updateOrcamentoField(${orc.id}, 'mao_de_obra', this.value)">
+          </div>
+        </div>
+        <div class="summary-line" style="color: var(--color-danger); align-items: center;">
+          <span>Desconto</span>
+          <div class="summary-input-wrapper">
+             <span class="currency-symbol" style="color: var(--color-danger);">- R$</span>
+             <input type="number" class="summary-input" value="${orc.desconto || 0}" step="0.01"
+                    style="color: var(--color-danger);"
+                    onchange="OrcamentosPage.updateOrcamentoField(${orc.id}, 'desconto', this.value)">
+          </div>
+        </div>
+        <div class="summary-line total">
+          <span>Total</span>
+          <span id="summary-total">${Helpers.formatCurrency(total)}</span>
+        </div>
+      </div>
+
+      <div style="margin-top: var(--spacing-lg);">
+        <div class="card-header"><span class="card-title">Cliente</span></div>
+        <div class="detail-item" style="margin-top: 8px;">
+          <div class="detail-label">Nome</div>
+          <div class="detail-value">${orc.cliente_nome}</div>
+        </div>
+        ${orc.cliente_telefone ? `<div class="detail-item" style="margin-top: 8px;"><div class="detail-label">Telefone</div><div class="detail-value">${orc.cliente_telefone}</div></div>` : ''}
+        ${orc.cliente_email ? `<div class="detail-item" style="margin-top: 8px;"><div class="detail-label">Email</div><div class="detail-value">${orc.cliente_email}</div></div>` : ''}
+      </div>
+    `;
+  },
+
+  async refreshSummary(orcamentoId) {
+    try {
+      const orc = await electronAPI.orcamentos.buscar(orcamentoId);
+      const container = document.getElementById('orc-summary-container');
+      if (container && orc) {
+        // Find focused element to restore it later if it's an input in summary
+        const focusedId = document.activeElement ? document.activeElement.onchange?.name || document.activeElement.closest('.summary-input-wrapper')?.querySelector('input')?.onchange?.name : null;
+        
+        container.innerHTML = this.renderSummary(orc);
+      }
+    } catch (err) {
+      console.error('Erro ao atualizar resumo:', err);
+    }
+  },
+
+  async updateOrcamentoField(id, field, value) {
+    try {
+      const orc = await electronAPI.orcamentos.buscar(id);
+      if (!orc) return;
+      
+      const dados = {
+        cliente_id: orc.cliente_id,
+        titulo: orc.titulo,
+        descricao: orc.descricao,
+        mao_de_obra: orc.mao_de_obra,
+        desconto: orc.desconto
+      };
+      
+      dados[field] = parseFloat(value) || 0;
+      
+      await electronAPI.orcamentos.atualizar(id, dados);
+      this.refreshSummary(id);
+    } catch (err) {
+      console.error('Erro ao atualizar campo do orçamento:', err);
+      Toast.error('Erro ao atualizar valor');
+    }
+  },
+
   async addItem(orcamentoId) {
     try {
       await electronAPI.orcamentoItens.criar({
         orcamento_id: orcamentoId,
-        descricao: 'Novo item',
-        quantidade: 1,
+        descricao: '',
+        quantidade: 0,
         valor_unitario: 0,
+        preco_custo_unitario: 0,
         categoria: 'material',
         comprado_pelo_cliente: 0
       });
@@ -355,28 +413,42 @@ const OrcamentosPage = {
         descricao: inputs[0].value,
         quantidade: parseFloat(inputs[1].value) || 0,
         valor_unitario: parseFloat(inputs[2].value) || 0,
-        comprado_pelo_cliente: inputs[3].checked ? 1 : 0,
+        preco_custo_unitario: parseFloat(inputs[3].value) || 0, // Novo campo
+        comprado_pelo_cliente: inputs[4].checked ? 1 : 0,
         categoria: 'material'
       };
 
       // Atualiza o campo específico que mudou
       if (field) {
-        dados[field] = field === 'quantidade' || field === 'valor_unitario' ? parseFloat(value) || 0 : value;
+        dados[field] = (field === 'quantidade' || field === 'valor_unitario' || field === 'preco_custo_unitario') ? parseFloat(value) || 0 : value;
       }
 
       await electronAPI.orcamentoItens.atualizar(itemId, dados);
 
-      // Atualiza o display do subtotal na linha
+      // Se estamos em detalhes, o resumo total precisa ser atualizado. 
+      if (this._currentViewingId) {
+         // Pequeno delay para garantir que o banco persistiu a mudança antes do refresh
+         setTimeout(() => {
+            if (this._currentViewingId) this.refreshSummary(this._currentViewingId);
+         }, 100);
+      }
+
+      // Atualiza o estilo visual da linha se necessário
       const subtotalEl = container.querySelector('div[style*="text-align: right"]');
       if (subtotalEl) {
         subtotalEl.textContent = Helpers.formatCurrency(dados.quantidade * dados.valor_unitario);
-      }
-      
-      // Se estamos em detalhes, o resumo total precisa ser atualizado. 
-      // Para simplificar e garantir precisão, recarregamos a view se for uma mudança que afeta o total geral
-      if (field === 'quantidade' || field === 'valor_unitario') {
-         // Debounce ou recarga controlada poderia ser melhor, mas vamos manter simples por agora
-         // Ou apenas atualizar o resumo via DOM se performance for problema
+        
+        if (dados.comprado_pelo_cliente) {
+          subtotalEl.style.textDecoration = 'line-through';
+          subtotalEl.style.color = 'var(--text-tertiary)';
+          container.classList.add('item-client-provided');
+          container.style.background = 'var(--bg-secondary)';
+        } else {
+          subtotalEl.style.textDecoration = 'none';
+          subtotalEl.style.color = 'var(--text-primary)';
+          container.classList.remove('item-client-provided');
+          container.style.background = 'transparent';
+        }
       }
     } catch (err) {
       console.error('Erro ao atualizar item:', err);
@@ -418,7 +490,7 @@ const OrcamentosPage = {
           ${materiais.length === 0
             ? '<p style="color: var(--text-tertiary); text-align: center; padding: 2rem;">Nenhum material cadastrado ainda</p>'
             : materiais.map(m => `
-              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}', ${m.valor_referencia}, ${m.id})">
+              <div class="material-search-item" data-nome="${m.nome.toLowerCase()}" onclick="OrcamentosPage._selectMaterial(${itemId}, ${orcamentoId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.preco_custo || 0}, ${m.id})">
                 <div style="display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; cursor: pointer; border-radius: 6px; transition: background 0.15s;" onmouseover="this.style.background='var(--bg-tertiary)'" onmouseout="this.style.background='transparent'">
                   <div>
                     <div style="font-weight: 600; font-size: var(--font-size-sm);">${m.nome}</div>
@@ -442,29 +514,10 @@ const OrcamentosPage = {
     });
   },
 
-  async _selectMaterial(itemId, orcamentoId, nome, valor, materialId) {
+  async _selectMaterial(itemId, orcamentoId, nome, valorVenda, valorCusto, materialId) {
     Modal.close();
-    try {
-      // Find the item row and update inputs
-      const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
-      if (container) {
-        const inputs = container.querySelectorAll('input');
-        inputs[0].value = nome;
-        inputs[2].value = valor;
-        container.dataset.materialId = materialId;
-      }
-      await electronAPI.orcamentoItens.atualizar(itemId, {
-        material_id: materialId,
-        descricao: nome,
-        quantidade: container ? parseFloat(container.querySelectorAll('input')[1].value) || 1 : 1,
-        valor_unitario: valor,
-        categoria: 'material'
-      });
-      Toast.success(`Material "${nome}" aplicado ao item`);
-      this.viewDetails(orcamentoId);
-    } catch (err) {
-      Toast.error('Erro ao aplicar material');
-    }
+    this.applyMaterialToItem(itemId, nome, valorVenda, valorCusto, materialId);
+    Toast.success(`Material "${nome}" aplicado ao item`);
   },
 
   async changeStatus(id, status) {
@@ -514,9 +567,28 @@ const OrcamentosPage = {
       const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       if (container) {
         const inputs = container.querySelectorAll('input');
-        inputs[2].value = exact.valor_referencia;
-        container.dataset.materialId = exact.id; // Crucial fix: update materialId in DOM
-        this.updateItem(itemId, 'valor_unitario', exact.valor_referencia);
+        inputs[2].value = exact.preco_venda || exact.valor_referencia;
+        inputs[3].value = exact.preco_custo || 0;
+        container.dataset.materialId = exact.id;
+        
+        const q = parseFloat(inputs[1].value) || 0;
+        const v = exact.preco_venda || exact.valor_referencia;
+        
+        // Update subtotal in UI immediately
+        const subtotalEl = container.querySelector('div[style*="text-align: right"]');
+        if (subtotalEl) subtotalEl.textContent = Helpers.formatCurrency(q * v);
+
+        // Atualiza múltiplos campos
+        await electronAPI.orcamentoItens.atualizar(itemId, {
+            material_id: exact.id,
+            descricao: exact.nome,
+            quantidade: q,
+            valor_unitario: v,
+            preco_custo_unitario: exact.preco_custo || 0,
+            categoria: 'material'
+        });
+        
+        if (this._currentViewingId) this.refreshSummary(this._currentViewingId);
       }
     }
 
@@ -543,7 +615,7 @@ const OrcamentosPage = {
                 style="width: 100%; text-align: left; padding: 10px 12px; border: none; background: transparent; cursor: pointer; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid rgba(255,255,255,0.03);"
                 onmouseover="this.style.background='var(--bg-tertiary)'"
                 onmouseout="this.style.background='transparent'"
-                onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.id})">
+                onclick="OrcamentosPage.applyMaterialToItem(${itemId}, '${m.nome.replace(/'/g, "\\'")}', ${m.preco_venda || m.valor_referencia}, ${m.preco_custo || 0}, ${m.id})">
           <div>
             <div style="font-size: 0.8rem; color: var(--text-primary); font-weight: 500;">${m.nome}</div>
             <div style="font-size: 0.65rem; color: var(--text-tertiary);">${m.categoria} · ${m.unidade}</div>
@@ -563,17 +635,34 @@ const OrcamentosPage = {
     }
   },
 
-  applyMaterialToItem(itemId, nome, valor, materialId) {
+  applyMaterialToItem(itemId, nome, valorVenda, valorCusto, materialId) {
     const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
     if (!container) return;
 
     const inputs = container.querySelectorAll('input');
     if (inputs[0]) inputs[0].value = nome;
-    if (inputs[2]) inputs[2].value = valor;
+    if (inputs[2]) inputs[2].value = valorVenda;
+    if (inputs[3]) inputs[3].value = valorCusto;
     if (materialId) container.dataset.materialId = materialId;
 
-    // Salva alteração do item com o preço do material
-    this.updateItem(itemId, 'valor_unitario', valor);
+    const q = parseFloat(inputs[1].value) || 0;
+    
+    // Update subtotal in UI immediately
+    const subtotalEl = container.querySelector('div[style*="text-align: right"]');
+    if (subtotalEl) subtotalEl.textContent = Helpers.formatCurrency(q * valorVenda);
+
+    // Salva alteração do item com os preços do material
+    electronAPI.orcamentoItens.atualizar(itemId, {
+        material_id: materialId,
+        descricao: nome,
+        quantidade: q,
+        valor_unitario: valorVenda,
+        preco_custo_unitario: valorCusto,
+        categoria: 'material'
+    }).then(() => {
+        if (this._currentViewingId) this.refreshSummary(this._currentViewingId);
+    });
+    
     this.clearMaterialSuggestions(itemId);
   },
 

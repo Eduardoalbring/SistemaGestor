@@ -63,7 +63,7 @@ const DashboardPage = {
       <div class="metric-card" style="border: 2px solid var(--color-info); background: var(--color-info-bg);">
         <div class="metric-icon" style="background: var(--color-info); color: white;">${Helpers.icons.trendingUp}</div>
         <div class="metric-value" style="color: var(--color-info);">${Helpers.formatCurrency(m.lucroMes)}</div>
-        <div class="metric-label" style="color: var(--color-info); font-weight: 700;">Lucro Líquido (Materiais)</div>
+        <div class="metric-label" style="color: var(--color-info); font-weight: 700;">Lucro Líquido</div>
       </div>
     `;
   },
@@ -207,7 +207,7 @@ const DashboardPage = {
       </div>
       <div class="card">
         <div class="card-header">
-          <span class="card-title">${Helpers.icons.trendingUp} Lucro por Mês (Materiais)</span>
+          <span class="card-title">${Helpers.icons.trendingUp} Lucro Líquido por Mês</span>
         </div>
         <div class="monthly-table">
           ${mensais.lucroPorMes?.length === 0
