@@ -241,12 +241,17 @@ const OrcamentosPage = {
                 </div>
               ` : orc.itens.map(item => `
                 <div class="item-row ${item.comprado_pelo_cliente ? 'item-client-provided' : ''}" data-item-id="${item.id}" data-material-id="${item.material_id || ''}" style="display: grid; grid-template-columns: 1fr 50px 100px 100px 100px 40px 70px; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--border-color); position: relative; ${item.comprado_pelo_cliente ? 'background: var(--bg-secondary);' : ''}">
-                  <input type="text" value="${item.descricao}" placeholder="Descrição do item"
-                         list="materiais-list"
-                         onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
-                         oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
-                         onfocus="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
-                         onblur="setTimeout(function(){ OrcamentosPage.clearMaterialSuggestions(${item.id}); }, 150)">
+                  <div style="display: flex; flex-direction: column; gap: 4px; width: 100%;">
+                    <input type="text" value="${item.descricao}" placeholder="Nome do item"
+                           list="materiais-list"
+                           onchange="OrcamentosPage.updateItem(${item.id}, 'descricao', this.value)"
+                           oninput="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
+                           onfocus="OrcamentosPage.onItemNameInput(${item.id}, this.value)"
+                           onblur="setTimeout(function(){ OrcamentosPage.clearMaterialSuggestions(${item.id}); }, 150)">
+                    <input type="text" value="${item.detalhes || ''}" placeholder="Detalhes (opcional)"
+                           style="font-size: 0.75rem; padding: 4px 8px; color: var(--text-secondary);"
+                           onchange="OrcamentosPage.updateItem(${item.id}, 'detalhes', this.value)">
+                  </div>
                   <input type="number" value="${item.quantidade}" placeholder="Qtd" min="0.01" step="0.01"
                          onchange="OrcamentosPage.updateItem(${item.id}, 'quantidade', this.value)"
                          style="text-align: center;">
@@ -390,6 +395,7 @@ const OrcamentosPage = {
       await electronAPI.orcamentoItens.criar({
         orcamento_id: orcamentoId,
         descricao: '',
+        detalhes: '',
         quantidade: 0,
         valor_unitario: 0,
         preco_custo_unitario: 0,
@@ -411,10 +417,11 @@ const OrcamentosPage = {
       const dados = {
         material_id: container.dataset.materialId ? parseInt(container.dataset.materialId) : null,
         descricao: inputs[0].value,
-        quantidade: parseFloat(inputs[1].value) || 0,
-        valor_unitario: parseFloat(inputs[2].value) || 0,
-        preco_custo_unitario: parseFloat(inputs[3].value) || 0, // Novo campo
-        comprado_pelo_cliente: inputs[4].checked ? 1 : 0,
+        detalhes: inputs[1].value,
+        quantidade: parseFloat(inputs[2].value) || 0,
+        valor_unitario: parseFloat(inputs[3].value) || 0,
+        preco_custo_unitario: parseFloat(inputs[4].value) || 0, // Novo campo
+        comprado_pelo_cliente: inputs[5].checked ? 1 : 0,
         categoria: 'material'
       };
 
@@ -567,11 +574,11 @@ const OrcamentosPage = {
       const container = document.querySelector(`.item-row[data-item-id="${itemId}"]`);
       if (container) {
         const inputs = container.querySelectorAll('input');
-        inputs[2].value = exact.preco_venda || exact.valor_referencia;
-        inputs[3].value = exact.preco_custo || 0;
+        inputs[3].value = exact.preco_venda || exact.valor_referencia;
+        inputs[4].value = exact.preco_custo || 0;
         container.dataset.materialId = exact.id;
         
-        const q = parseFloat(inputs[1].value) || 0;
+        const q = parseFloat(inputs[2].value) || 0;
         const v = exact.preco_venda || exact.valor_referencia;
         
         // Update subtotal in UI immediately
@@ -582,6 +589,7 @@ const OrcamentosPage = {
         await electronAPI.orcamentoItens.atualizar(itemId, {
             material_id: exact.id,
             descricao: exact.nome,
+            detalhes: inputs[1].value,
             quantidade: q,
             valor_unitario: v,
             preco_custo_unitario: exact.preco_custo || 0,
@@ -641,11 +649,11 @@ const OrcamentosPage = {
 
     const inputs = container.querySelectorAll('input');
     if (inputs[0]) inputs[0].value = nome;
-    if (inputs[2]) inputs[2].value = valorVenda;
-    if (inputs[3]) inputs[3].value = valorCusto;
+    if (inputs[3]) inputs[3].value = valorVenda;
+    if (inputs[4]) inputs[4].value = valorCusto;
     if (materialId) container.dataset.materialId = materialId;
 
-    const q = parseFloat(inputs[1].value) || 0;
+    const q = parseFloat(inputs[2].value) || 0;
     
     // Update subtotal in UI immediately
     const subtotalEl = container.querySelector('div[style*="text-align: right"]');
@@ -655,6 +663,7 @@ const OrcamentosPage = {
     electronAPI.orcamentoItens.atualizar(itemId, {
         material_id: materialId,
         descricao: nome,
+        detalhes: inputs[1]?.value || '',
         quantidade: q,
         valor_unitario: valorVenda,
         preco_custo_unitario: valorCusto,

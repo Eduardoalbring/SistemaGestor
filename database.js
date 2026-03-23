@@ -201,6 +201,10 @@ class Database {
       this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN preco_custo_unitario REAL DEFAULT 0").run();
     } catch (e) { }
 
+    try {
+      this.db.prepare("ALTER TABLE orcamento_itens ADD COLUMN detalhes TEXT").run();
+    } catch (e) { }
+
     // Roda verificação/geração de despesas fixas para o mês atual
     try {
       this.gerarCustosFixosDoMes();
@@ -357,13 +361,14 @@ class Database {
 
   criarItemOrcamento(dados) {
     const stmt = this.db.prepare(`
-      INSERT INTO orcamento_itens (orcamento_id, material_id, descricao, quantidade, valor_unitario, preco_custo_unitario, categoria, comprado_pelo_cliente)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO orcamento_itens (orcamento_id, material_id, descricao, detalhes, quantidade, valor_unitario, preco_custo_unitario, categoria, comprado_pelo_cliente)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const result = stmt.run(
       dados.orcamento_id,
       dados.material_id || null, 
       dados.descricao, 
+      dados.detalhes || null,
       dados.quantidade || 1, 
       dados.valor_unitario || 0, 
       dados.preco_custo_unitario || 0,
@@ -377,12 +382,13 @@ class Database {
 
   atualizarItemOrcamento(id, dados) {
     const stmt = this.db.prepare(`
-      UPDATE orcamento_itens SET material_id=?, descricao=?, quantidade=?, valor_unitario=?, preco_custo_unitario=?, categoria=?, comprado_pelo_cliente=?
+      UPDATE orcamento_itens SET material_id=?, descricao=?, detalhes=?, quantidade=?, valor_unitario=?, preco_custo_unitario=?, categoria=?, comprado_pelo_cliente=?
       WHERE id=?
     `);
     stmt.run(
       dados.material_id || null,
       dados.descricao, 
+      dados.detalhes || null,
       dados.quantidade, 
       dados.valor_unitario, 
       dados.preco_custo_unitario || 0,
