@@ -335,7 +335,7 @@ const MateriaisPage = {
                    value="${isEdit ? material.preco_venda : '0'}" oninput="MateriaisPage.calcMargin()">
           </div>
           <div class="form-group">
-            <label class="form-label">Margem (%)</label>
+            <label class="form-label">Lucro / Markup (%)</label>
             <div id="mat-margem-display" class="badge" style="display: block; text-align: center; padding: 10px; font-weight: 700; font-size: 1rem; background: var(--bg-secondary);">
               0%
             </div>
@@ -406,10 +406,13 @@ const MateriaisPage = {
     const display = document.getElementById('mat-margem-display');
     if (!display) return;
 
-    if (venda > 0) {
-      const margin = ((venda - custo) / venda) * 100;
-      display.textContent = `${margin.toFixed(1)}%`;
-      display.className = `badge ${margin >= 0 ? 'badge-aprovado' : 'badge-rejeitado'}`;
+    if (custo > 0) {
+      const markup = ((venda - custo) / custo) * 100;
+      display.textContent = `${markup.toFixed(1)}%`;
+      display.className = `badge ${markup >= 0 ? 'badge-aprovado' : 'badge-rejeitado'}`;
+    } else if (venda > 0) {
+      display.textContent = '100%+';
+      display.className = 'badge badge-aprovado';
     } else {
       display.textContent = '0%';
       display.className = 'badge';

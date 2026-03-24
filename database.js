@@ -300,6 +300,10 @@ class Database {
       query += ' AND o.tipo = ?';
       params.push(filtros.tipo);
     }
+    if (filtros.mes) {
+      query += " AND strftime('%Y-%m', o.criado_em) = ?";
+      params.push(filtros.mes);
+    }
 
     query += ' ORDER BY o.criado_em DESC';
     return this.db.prepare(query).all(...params);
@@ -350,7 +354,22 @@ class Database {
   }
 
   excluirOrcamento(id) {
-    this.db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
+    this.db.transaction(() => {
+      // 1. Deletar Serviços vinculados
+      this.db.prepare('DELETE FROM servicos WHERE orcamento_id = ?').run(id);
+      
+      // 2. Deletar Custos vinculados aos itens deste orçamento
+      this.db.prepare(`
+        DELETE FROM custos 
+        WHERE orcamento_item_id IN (SELECT id FROM orcamento_itens WHERE orcamento_id = ?)
+      `).run(id);
+
+      // 3. Deletar os itens do orçamento (embora a FK cascade cuide, fazemos explícito aqui se necessário)
+      this.db.prepare('DELETE FROM orcamento_itens WHERE orcamento_id = ?').run(id);
+      
+      // 4. Por fim, deleta o orçamento
+      this.db.prepare('DELETE FROM orcamentos WHERE id = ?').run(id);
+    })();
     return { success: true };
   }
 
@@ -401,9 +420,12 @@ class Database {
   }
 
   excluirItemOrcamento(id) {
-    // A FK constraints (ON DELETE CASCADE) no banco cuidará da exclusão na tabela 'custos' 
-    // se tivermos definido corretamente (adicionamos na migração).
-    this.db.prepare('DELETE FROM orcamento_itens WHERE id = ?').run(id);
+    this.db.transaction(() => {
+      // Deleta primeiro os custos para manter integridade
+      this.db.prepare('DELETE FROM custos WHERE orcamento_item_id = ?').run(id);
+      // Deleta o item
+      this.db.prepare('DELETE FROM orcamento_itens WHERE id = ?').run(id);
+    })();
     return { success: true };
   }
 
@@ -498,6 +520,10 @@ class Database {
     if (filtros.servico_pai_id) {
       query += ' AND s.servico_pai_id = ?';
       params.push(filtros.servico_pai_id);
+    }
+    if (filtros.mes) {
+      query += " AND strftime('%Y-%m', s.criado_em) = ?";
+      params.push(filtros.mes);
     }
 
     query += ' ORDER BY s.criado_em DESC';
@@ -699,12 +725,25 @@ class Database {
       AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
 
-    const custosMateriaisMes = this.db.prepare(`
-      SELECT COALESCE(SUM(valor), 0) as total FROM custos 
-      WHERE status = 'pago' AND tipo = 'materiais' AND meta_id IS NULL AND strftime('%Y-%m', data) = ? AND deletado = 0
-    `).get(mesAtual).total;
+    // lucroTotal = Faturamento de Orçamentos - Custo de Itens dos Orçamentos (Global)
+    const lucroTotal = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        + o.mao_de_obra - o.desconto
+        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+      ), 0) as total
+      FROM orcamentos o WHERE o.status = 'aprovado'
+    `).get().total;
 
-    const lucroMes = faturamentoMesTotal - custosMateriaisMes;
+    // lucroMes = Faturamento do Mes - Custo de Itens do Mês
+    const lucroMes = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        + o.mao_de_obra - o.desconto
+        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+      ), 0) as total
+      FROM orcamentos o WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
+    `).get(mesAtual).total;
 
     return {
       totalClientes,
@@ -715,8 +754,10 @@ class Database {
       faturamentoMateriais: faturamentoMateriaisTotal,
       faturamentoMes: faturamentoMesTotal,
       faturamentoMateriaisMes,
-      custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND strftime('%Y-%m', data) = ? AND deletado = 0").get(mesAtual).total,
+      // Pega despesas normais (exclui material de orçamento para não duplicar redução no visual)
+      custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND tipo != 'materiais' AND strftime('%Y-%m', data) = ? AND deletado = 0").get(mesAtual).total,
       lucroMes,
+      lucroTotal,
       orcamentosPorStatus,
       servicosPorStatus
     };
@@ -1003,31 +1044,35 @@ class Database {
     const todosFixos = this.listarCustosFixos();
     if (todosFixos.length === 0) return;
 
-    const authMonth = new Date().toISOString().slice(0, 7); // ex: 2026-03
-    const insertStmt = this.db.prepare(`
-      INSERT INTO custos (tipo, categoria, descricao, valor, data, status, observacoes)
-      VALUES ('despesas', ?, ?, ?, ?, 'previsto', 'Lançamento Automático - Custo Fixo')
-    `);
-
-    // Checa se já existe o lançamento de cada custo fixo neste mês (baseado na descrição exata)
-    const getExistente = this.db.prepare(`
-      SELECT id FROM custos WHERE descricao = ? AND strftime('%Y-%m', data) = ? AND deletado = 0
-    `);
-
     this.db.transaction(() => {
-      for (const fixo of todosFixos) {
-        const jaFoiLancado = getExistente.get(fixo.descricao, authMonth);
-        if (!jaFoiLancado) {
-          const diaFormatado = fixo.dia_vencimento.toString().padStart(2, '0');
-          // constroi a data pro mês atual, padronizado (ano-mes-dia)
-          let dataLancamento = `${authMonth}-${diaFormatado}`;
-          
-          insertStmt.run(
-            fixo.categoria,
-            fixo.descricao,
-            fixo.valor,
-            dataLancamento
-          );
+      const insertStmt = this.db.prepare(`
+        INSERT INTO custos (tipo, categoria, descricao, valor, data, status, observacoes)
+        VALUES ('despesas', ?, ?, ?, ?, 'previsto', 'Lançamento Automático - Custo Fixo')
+      `);
+
+      const getExistente = this.db.prepare(`
+        SELECT id FROM custos WHERE descricao = ? AND strftime('%Y-%m', data) = ? AND deletado = 0
+      `);
+
+      // Gera para os próximos 12 meses
+      for (let i = 0; i < 12; i++) {
+        const d = new Date();
+        d.setMonth(d.getMonth() + i);
+        const targetMonth = d.toISOString().slice(0, 7); // YYYY-MM
+
+        for (const fixo of todosFixos) {
+          const jaFoiLancado = getExistente.get(fixo.descricao, targetMonth);
+          if (!jaFoiLancado) {
+            const diaFormatado = fixo.dia_vencimento.toString().padStart(2, '0');
+            let dataLancamento = `${targetMonth}-${diaFormatado}`;
+            
+            insertStmt.run(
+              fixo.categoria,
+              fixo.descricao,
+              fixo.valor,
+              dataLancamento
+            );
+          }
         }
       }
     })();
@@ -1200,29 +1245,28 @@ class Database {
   }
 
   getSaldoLivre() {
-    // Conta TODO o faturamento aprovado até hoje
-    const fat = this.db.prepare(`
+    // Lucro Liquido = Faturamento - Custos Diretos dos Itens
+    const lucro_orcamentos = this.db.prepare(`
       SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id)
+        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
         + o.mao_de_obra - o.desconto
+        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
       ), 0) as total
       FROM orcamentos o
       WHERE o.status = 'aprovado'
-    `).get();
+    `).get().total;
 
-    // Conta TODOS os custos já registrados (EXCLUINDO os vinculados a metas para evitar dup)
-    // Na verdade, o ideal é: Saldo = (Faturamento Total) - (Todos os Custos)
-    // Porque o custo da meta já está na tabela de custos.
-    const custos_sem_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND deletado = 0").get();
-    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get();
+    // Despesas = TODOS os custos exceto os do tipo 'materiais' gerados pelos orçamentos
+    const custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0").get().total;
+    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get().total;
     
-    const saldo = (fat?.total || 0) - (custos_sem_meta?.total || 0) - (custos_com_meta?.total || 0);
+    const saldo = lucro_orcamentos - custos_gerais - custos_com_meta;
 
     return { 
       saldo, 
-      faturamento: fat?.total || 0, 
-      custos: custos_sem_meta?.total || 0,
-      metas_compradas: custos_com_meta?.total || 0
+      faturamento: lucro_orcamentos, 
+      custos: custos_gerais,
+      metas_compradas: custos_com_meta
     };
   }
 

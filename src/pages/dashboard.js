@@ -52,13 +52,13 @@ const DashboardPage = {
       </div>
       <div class="metric-card">
         <div class="metric-icon green">${Helpers.icons.dollarSign}</div>
-        <div class="metric-value">${Helpers.formatCurrency(m.faturamento)}</div>
-        <div class="metric-label">Faturamento (Aprovados)</div>
+        <div class="metric-value">${Helpers.formatCurrency(m.lucroTotal)}</div>
+        <div class="metric-label">Lucro Total (Orçamentos)</div>
       </div>
       <div class="metric-card">
         <div class="metric-icon" style="background: var(--color-danger-bg); color: var(--color-danger);">${Helpers.icons.dollarSign}</div>
         <div class="metric-value" style="color: var(--color-danger);">${Helpers.formatCurrency(m.custosMes)}</div>
-        <div class="metric-label">Despesas (Mês Atual)</div>
+        <div class="metric-label">Despesas Globais (Mês Atual)</div>
       </div>
       <div class="metric-card" style="border: 2px solid var(--color-info); background: var(--color-info-bg);">
         <div class="metric-icon" style="background: var(--color-info); color: white;">${Helpers.icons.trendingUp}</div>

@@ -1,7 +1,7 @@
 // ============ Orçamentos Page ============
 
 const OrcamentosPage = {
-  filtros: { busca: '', status: '' },
+  filtros: { busca: '', status: '', mes: new Date().toISOString().slice(0, 7) },
 
   async render() {
     this._currentViewingId = null;
@@ -26,7 +26,9 @@ const OrcamentosPage = {
             <input type="text" class="search-input" placeholder="Buscar orçamento ou cliente..."
                    id="orc-search" oninput="OrcamentosPage.onSearch(this.value)">
           </div>
-          <div class="table-filters">
+          <div class="table-filters" style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: wrap;">
+            <input type="month" class="form-input" style="width: 160px; padding: 6px 10px;" 
+                   value="${this.filtros.mes}" onchange="OrcamentosPage.filterMes(this.value)">
             <button class="filter-chip ${!this.filtros.status ? 'active' : ''}" onclick="OrcamentosPage.filterStatus('')">Todos</button>
             <button class="filter-chip ${this.filtros.status === 'rascunho' ? 'active' : ''}" onclick="OrcamentosPage.filterStatus('rascunho')">Rascunho</button>
             <button class="filter-chip ${this.filtros.status === 'enviado' ? 'active' : ''}" onclick="OrcamentosPage.filterStatus('enviado')">Enviado</button>
@@ -93,6 +95,11 @@ const OrcamentosPage = {
 
   filterStatus(status) {
     this.filtros.status = status;
+    this.render();
+  },
+
+  filterMes(mes) {
+    this.filtros.mes = mes;
     this.render();
   },
 

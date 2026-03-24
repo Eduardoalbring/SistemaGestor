@@ -1,7 +1,7 @@
 // ============ Serviços Page ============
 
 const ServicosPage = {
-  filtros: { busca: '', status: '', prioridade: '' },
+  filtros: { busca: '', status: '', prioridade: '', mes: new Date().toISOString().slice(0, 7) },
 
   async render() {
     const content = document.getElementById('main-content');
@@ -24,7 +24,9 @@ const ServicosPage = {
             <input type="text" class="search-input" placeholder="Buscar serviço ou cliente..."
                    oninput="ServicosPage.onSearch(this.value)">
           </div>
-          <div class="table-filters">
+          <div class="table-filters" style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: wrap;">
+            <input type="month" class="form-input" style="width: 160px; padding: 6px 10px;" 
+                   value="${this.filtros.mes}" onchange="ServicosPage.filterMes(this.value)">
             <button class="filter-chip ${!this.filtros.status ? 'active' : ''}" onclick="ServicosPage.filterStatus('')">Todos</button>
             <button class="filter-chip ${this.filtros.status === 'pendente' ? 'active' : ''}" onclick="ServicosPage.filterStatus('pendente')">Pendente</button>
             <button class="filter-chip ${this.filtros.status === 'em_andamento' ? 'active' : ''}" onclick="ServicosPage.filterStatus('em_andamento')">Em Andamento</button>
@@ -86,6 +88,11 @@ const ServicosPage = {
 
   filterStatus(status) {
     this.filtros.status = status;
+    this.render();
+  },
+
+  filterMes(mes) {
+    this.filtros.mes = mes;
     this.render();
   },
 

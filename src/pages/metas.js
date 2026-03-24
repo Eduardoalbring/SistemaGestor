@@ -61,11 +61,11 @@ const MetasPage = {
       <div class="metric-card">
         <div style="display: flex; flex-direction: column; gap: 12px; height: 100%; justify-content: center;">
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--text-secondary); font-size: var(--font-size-sm);">Faturamento Total (Aprovado)</span>
+            <span style="color: var(--text-secondary); font-size: var(--font-size-sm);">Lucro Total Orçamentos</span>
             <strong style="color: var(--color-success);">${Helpers.formatCurrency(faturamento)}</strong>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
-            <span style="color: var(--text-secondary); font-size: var(--font-size-sm);">Despesas & Materiais</span>
+            <span style="color: var(--text-secondary); font-size: var(--font-size-sm);">Despesas / Overhead</span>
             <strong style="color: var(--color-danger);">${Helpers.formatCurrency(custos)}</strong>
           </div>
           <div style="display: flex; justify-content: space-between; align-items: center;">
