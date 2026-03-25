@@ -80,7 +80,7 @@ const MateriaisPage = {
             <input type="text" class="search-input" placeholder="Buscar material..."
                    oninput="MateriaisPage.onSearch(this.value)">
           </div>
-          <div class="table-filters" style="flex-wrap: wrap;">
+          <div class="table-filters" style="flex-wrap: nowrap; overflow-x: auto;">
             ${categorias.map(c => `
               <button class="filter-chip ${this.filtros.categoria === c.value ? 'active' : ''}" 
                       onclick="MateriaisPage.filterCategoria('${c.value}')">${c.label}</button>

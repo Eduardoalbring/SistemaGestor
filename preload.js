@@ -111,6 +111,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
     criar: (dados) => ipcRenderer.invoke('metas:criar', dados),
     atualizar: (id, dados) => ipcRenderer.invoke('metas:atualizar', id, dados),
     excluir: (id) => ipcRenderer.invoke('metas:excluir', id),
-    saldo: () => ipcRenderer.invoke('metas:saldo'),
+    saldo: (mes) => ipcRenderer.invoke('metas:saldo', mes),
   }
 });

@@ -145,6 +145,24 @@ const IntegracoesPage = {
       else if (tipo === 'servicos') titulo = 'Serviços';
       else titulo = 'Clientes';
 
+      // Load orçamentos for selector if exporting orçamentos
+      let orcamentosOptions = '';
+      if (tipo === 'orcamentos') {
+        const orcamentos = await electronAPI.orcamentos.listar({});
+        orcamentosOptions = `
+          <div class="form-group" id="container-filtro-orcamento">
+            <label class="form-label">Selecionar Orçamento (Opcional)</label>
+            <select class="form-select" id="export-orcamento-id">
+              <option value="">Todos os Orçamentos</option>
+              ${orcamentos.map(o => {
+                const total = (o.total_itens || 0) + (o.mao_de_obra || 0) - (o.desconto || 0);
+                return `<option value="${o.id}">${o.titulo} — ${o.cliente_nome} (${Helpers.formatCurrency(total)})</option>`;
+              }).join('')}
+            </select>
+          </div>
+        `;
+      }
+
       Modal.open(`
         <div class="modal-header">
           <h3>📊 Exportar ${titulo}</h3>
@@ -158,6 +176,8 @@ const IntegracoesPage = {
               ${clientes.map(c => `<option value="${c.id}">${c.nome}</option>`).join('')}
             </select>
           </div>
+
+          ${orcamentosOptions}
           
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-md); margin-top: var(--spacing-md);">
             <div class="form-group">
@@ -230,20 +250,63 @@ const IntegracoesPage = {
         ]);
       } else if (tipo === 'orcamentos') {
         title = 'Orçamentos';
-        const lista = await electronAPI.orcamentos.listar(filtros);
-        data = lista.filter(dateFilter);
+        const orcamentoIdEl = document.getElementById('export-orcamento-id');
+        const orcamentoId = orcamentoIdEl ? orcamentoIdEl.value : '';
+        
+        if (orcamentoId) {
+          // Export specific orçamento as full document
+          const orc = await electronAPI.orcamentos.buscar(parseInt(orcamentoId));
+          if (!orc) {
+            Toast.warning('Orçamento não encontrado.');
+            return;
+          }
 
-        headers = ['Título', 'Cliente', 'Status', 'Mão de Obra', 'Desconto', 'Total', 'Criado em'];
-        rows = data.map(o => {
-          const total = (o.total_itens || 0) + (o.mao_de_obra || 0) - (o.desconto || 0);
-          return [
-            o.titulo, o.cliente_nome, Helpers.statusLabel(o.status),
-            Helpers.formatCurrency ? Helpers.formatCurrency(o.mao_de_obra) : o.mao_de_obra,
-            Helpers.formatCurrency ? Helpers.formatCurrency(o.desconto) : o.desconto,
-            Helpers.formatCurrency ? Helpers.formatCurrency(total) : total,
-            Helpers.formatDate(o.criado_em)
-          ];
-        });
+          const totalItens = (orc.itens || [])
+            .filter(i => !i.comprado_pelo_cliente)
+            .reduce((s, i) => s + (i.quantidade * i.valor_unitario), 0);
+          const totalGeral = totalItens + (orc.mao_de_obra || 0) - (orc.desconto || 0);
+
+          if (formato === 'pdf') {
+            this._gerarPDFOrcamento(orc, totalItens, totalGeral);
+            Modal.close();
+            return;
+          }
+
+          // CSV: export items table
+          data = orc.itens || [];
+          title = `Orcamento_${orc.titulo}`;
+          headers = ['Item', 'Detalhes', 'Qtd', 'Preço Unit.', 'Custo Unit.', 'Total', 'Fornecido pelo Cliente'];
+          rows = (orc.itens || []).map(i => [
+            i.descricao || 'Sem descrição',
+            i.detalhes || '',
+            i.quantidade,
+            Helpers.formatCurrency(i.valor_unitario),
+            Helpers.formatCurrency(i.preco_custo_unitario || 0),
+            Helpers.formatCurrency(i.quantidade * i.valor_unitario),
+            i.comprado_pelo_cliente ? 'Sim' : 'Não'
+          ]);
+          // Add summary rows
+          rows.push(['', '', '', '', '', '', '']);
+          rows.push(['', '', '', '', 'Subtotal Materiais', Helpers.formatCurrency(totalItens), '']);
+          rows.push(['', '', '', '', 'Mão de Obra', Helpers.formatCurrency(orc.mao_de_obra || 0), '']);
+          rows.push(['', '', '', '', 'Desconto', `- ${Helpers.formatCurrency(orc.desconto || 0)}`, '']);
+          rows.push(['', '', '', '', 'TOTAL GERAL', Helpers.formatCurrency(totalGeral), '']);
+
+          if (data.length === 0) data = [orc]; // ensure we don't hit empty check
+        } else {
+          const lista = await electronAPI.orcamentos.listar(filtros);
+          data = lista.filter(dateFilter);
+
+          headers = ['Título', 'Cliente', 'Status', 'Mão de Obra', 'Desconto', 'Total', 'Criado em'];
+          rows = data.map(o => {
+            const total = (o.total_itens || 0) + (o.mao_de_obra || 0) - (o.desconto || 0);
+            return [
+              o.titulo, o.cliente_nome, Helpers.statusLabel(o.status),
+              Helpers.formatCurrency(o.mao_de_obra), Helpers.formatCurrency(o.desconto),
+              Helpers.formatCurrency(total), Helpers.formatDate(o.criado_em)
+            ];
+          });
+        }
       } else if (tipo === 'servicos') {
         title = 'Serviços';
         const lista = await electronAPI.servicos.listar(filtros);
@@ -272,6 +335,160 @@ const IntegracoesPage = {
     } catch (err) {
       Toast.error('Erro ao gerar exportação: ' + err.message);
     }
+  },
+
+  _gerarPDFOrcamento(orc, totalItens, totalGeral) {
+    Toast.success('Gerando PDF do orçamento...');
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'absolute';
+    iframe.style.width = '0px';
+    iframe.style.height = '0px';
+    iframe.style.border = 'none';
+    document.body.appendChild(iframe);
+
+    setTimeout(() => {
+      const doc = iframe.contentWindow.document;
+
+      const itensHtml = (orc.itens || []).map((item, idx) => {
+        const subtotal = item.quantidade * item.valor_unitario;
+        const isCliente = item.comprado_pelo_cliente;
+        return `
+          <tr style="${isCliente ? 'background: #f9fafb; color: #9ca3af;' : ''}">
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; font-size: 12px;">${idx + 1}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb;">
+              <div style="font-weight: 600; font-size: 13px; ${isCliente ? 'text-decoration: line-through;' : ''}">${item.descricao || 'Sem descrição'}</div>
+              ${item.detalhes ? `<div style="font-size: 11px; color: #6b7280; margin-top: 2px;">${item.detalhes}</div>` : ''}
+              ${isCliente ? '<div style="font-size: 10px; color: #f59e0b; margin-top: 2px;">⚠ Fornecido pelo cliente</div>' : ''}
+            </td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: center; font-size: 13px;">${item.quantidade}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; font-size: 13px;">${Helpers.formatCurrency(item.valor_unitario)}</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid #e5e7eb; text-align: right; font-weight: 600; font-size: 13px; ${isCliente ? 'text-decoration: line-through;' : ''}">${Helpers.formatCurrency(subtotal)}</td>
+          </tr>
+        `;
+      }).join('');
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>Orçamento - ${orc.titulo}</title>
+          <style>
+            * { margin: 0; padding: 0; box-sizing: border-box; }
+            body { font-family: 'Segoe UI', sans-serif; padding: 30px 40px; color: #1f2937; line-height: 1.5; }
+            .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; padding-bottom: 20px; border-bottom: 2px solid #111; }
+            .brand { font-size: 22px; font-weight: 800; color: #111; }
+            .brand-sub { font-size: 10px; color: #9ca3af; text-transform: uppercase; letter-spacing: 2px; }
+            .doc-info { text-align: right; font-size: 12px; color: #6b7280; }
+            .doc-title { font-size: 20px; font-weight: 700; margin-bottom: 20px; color: #111; }
+            .info-grid { display: flex; gap: 40px; margin-bottom: 24px; }
+            .info-block label { font-size: 10px; text-transform: uppercase; color: #9ca3af; letter-spacing: 1px; font-weight: 600; display: block; margin-bottom: 4px; }
+            .info-block span { font-size: 13px; font-weight: 600; color: #111; }
+            .description { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 12px 16px; margin-bottom: 24px; font-size: 13px; color: #4b5563; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+            thead tr { background: #f3f4f6; }
+            th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 2px solid #e5e7eb; }
+            th.right { text-align: right; }
+            th.center { text-align: center; }
+            .summary { margin-left: auto; width: 280px; }
+            .summary-row { display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; color: #4b5563; }
+            .summary-row.total { border-top: 2px solid #111; margin-top: 8px; padding-top: 10px; font-size: 16px; font-weight: 800; color: #111; }
+            .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af; text-align: center; }
+            @media print { body { padding: 15px 25px; } }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div>
+              <div class="brand">Albring's</div>
+              <div class="brand-sub">Serviços Elétricos</div>
+            </div>
+            <div class="doc-info">
+              <div>Orçamento #${orc.id}</div>
+              <div>${Helpers.formatDate(orc.criado_em)}</div>
+              <div style="margin-top: 4px; font-weight: 600; color: #111;">${Helpers.statusLabel(orc.status).toUpperCase()}</div>
+            </div>
+          </div>
+
+          <div class="doc-title">${orc.titulo}</div>
+
+          <div class="info-grid">
+            <div class="info-block">
+              <label>Cliente</label>
+              <span>${orc.cliente_nome}</span>
+            </div>
+            ${orc.cliente_telefone ? `
+              <div class="info-block">
+                <label>Telefone</label>
+                <span>${orc.cliente_telefone}</span>
+              </div>
+            ` : ''}
+            ${orc.cliente_email ? `
+              <div class="info-block">
+                <label>Email</label>
+                <span>${orc.cliente_email}</span>
+              </div>
+            ` : ''}
+            <div class="info-block">
+              <label>Tipo</label>
+              <span>${orc.tipo === 'inicial' ? 'Orçamento Inicial' : 'Adicional de Execução'}</span>
+            </div>
+          </div>
+
+          ${orc.descricao ? `<div class="description">${orc.descricao}</div>` : ''}
+
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 30px;">#</th>
+                <th>Descrição</th>
+                <th class="center" style="width: 60px;">Qtd</th>
+                <th class="right" style="width: 100px;">Preço Unit.</th>
+                <th class="right" style="width: 100px;">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${itensHtml || '<tr><td colspan="5" style="padding: 20px; text-align: center; color: #9ca3af;">Nenhum item adicionado</td></tr>'}
+            </tbody>
+          </table>
+
+          <div class="summary">
+            <div class="summary-row">
+              <span>Subtotal Materiais</span>
+              <span>${Helpers.formatCurrency(totalItens)}</span>
+            </div>
+            <div class="summary-row">
+              <span>Mão de Obra</span>
+              <span>${Helpers.formatCurrency(orc.mao_de_obra || 0)}</span>
+            </div>
+            ${(orc.desconto || 0) > 0 ? `
+              <div class="summary-row" style="color: #dc2626;">
+                <span>Desconto</span>
+                <span>- ${Helpers.formatCurrency(orc.desconto)}</span>
+              </div>
+            ` : ''}
+            <div class="summary-row total">
+              <span>Total Geral</span>
+              <span>${Helpers.formatCurrency(totalGeral)}</span>
+            </div>
+          </div>
+
+          <div class="footer">
+            Gerado em ${new Date().toLocaleString('pt-BR')} · Albring's LTDA
+          </div>
+        </body>
+        </html>
+      `;
+
+      doc.open();
+      doc.write(html);
+      doc.close();
+
+      setTimeout(() => {
+        iframe.contentWindow.focus();
+        iframe.contentWindow.print();
+        setTimeout(() => document.body.removeChild(iframe), 1000);
+      }, 500);
+    }, 100);
   },
 
   _gerarCSV(headers, rows, nome) {

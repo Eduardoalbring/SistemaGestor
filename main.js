@@ -242,4 +242,4 @@ ipcMain.handle('metas:listar', () => db.listarMetas());
 ipcMain.handle('metas:criar', (_, dados) => db.criarMeta(dados));
 ipcMain.handle('metas:atualizar', (_, id, dados) => db.atualizarMeta(id, dados));
 ipcMain.handle('metas:excluir', (_, id) => db.excluirMeta(id));
-ipcMain.handle('metas:saldo', () => db.getSaldoLivre());
+ipcMain.handle('metas:saldo', (_, mes) => db.getSaldoLivre(mes));

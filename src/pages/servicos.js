@@ -24,8 +24,8 @@ const ServicosPage = {
             <input type="text" class="search-input" placeholder="Buscar serviço ou cliente..."
                    oninput="ServicosPage.onSearch(this.value)">
           </div>
-          <div class="table-filters" style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: wrap;">
-            <input type="month" class="form-input" style="width: 160px; padding: 6px 10px;" 
+          <div class="table-filters" style="display: flex; gap: var(--spacing-sm); align-items: center; flex-wrap: nowrap; overflow-x: auto;">
+            <input type="month" class="form-input" style="width: 160px; padding: 6px 10px; flex-shrink: 0;" 
                    value="${this.filtros.mes}" onchange="ServicosPage.filterMes(this.value)">
             <button class="filter-chip ${!this.filtros.status ? 'active' : ''}" onclick="ServicosPage.filterStatus('')">Todos</button>
             <button class="filter-chip ${this.filtros.status === 'pendente' ? 'active' : ''}" onclick="ServicosPage.filterStatus('pendente')">Pendente</button>

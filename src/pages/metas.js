@@ -1,6 +1,8 @@
 // ============ Metas Page ============
 
 const MetasPage = {
+  filtroMes: '', // '' = período total (sem filtro)
+
   async render() {
     const content = document.getElementById('main-content');
     content.innerHTML = `<div class="page-content fade-in">
@@ -13,6 +15,21 @@ const MetasPage = {
           <button class="btn btn-primary" onclick="MetasPage.openForm()">
             ${Helpers.icons.plus} Nova Meta/Compra
           </button>
+        </div>
+      </div>
+
+      <!-- Filtro de Período -->
+      <div class="table-container" style="margin-bottom: var(--spacing-lg); padding: var(--spacing-md) var(--spacing-lg);">
+        <div class="table-toolbar" style="border-bottom: none; padding: 0;">
+          <div style="display: flex; align-items: center; gap: var(--spacing-md);">
+            <span style="font-size: var(--font-size-sm); font-weight: 600; color: var(--text-secondary); white-space: nowrap;">📅 Período:</span>
+            <input type="month" class="form-input" style="width: 180px; padding: 6px 10px;" 
+                   value="${this.filtroMes}" 
+                   onchange="MetasPage.filtrarPorMes(this.value)">
+            <button class="filter-chip ${!this.filtroMes ? 'active' : ''}" onclick="MetasPage.filtrarPorMes('')">
+              Período Total
+            </button>
+          </div>
         </div>
       </div>
 
@@ -32,11 +49,17 @@ const MetasPage = {
     this.loadData();
   },
 
+  filtrarPorMes(mes) {
+    this.filtroMes = mes;
+    this.render();
+  },
+
   async loadData() {
     try {
+      const mesParam = this.filtroMes || null;
       const [metas, saldoData] = await Promise.all([
         electronAPI.metas.listar(),
-        electronAPI.metas.saldo()
+        electronAPI.metas.saldo(mesParam)
       ]);
 
       this.renderResumo(saldoData);
@@ -50,12 +73,16 @@ const MetasPage = {
   renderResumo(data) {
     const grid = document.getElementById('metas-resumo');
     const { saldo, faturamento, custos, metas_compradas } = data;
+    const periodoLabel = this.filtroMes 
+      ? new Date(this.filtroMes + '-01').toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })
+      : 'Período Total';
 
     grid.innerHTML = `
       <div class="metric-card" style="background: linear-gradient(135deg, var(--text-primary) 0%, #333 100%); color: white;">
         <div class="metric-icon" style="background: rgba(255,255,255,0.1); color: white;">${Helpers.icons.dollarSign}</div>
         <div class="metric-value" style="color: white; font-size: var(--font-size-2xl);">${Helpers.formatCurrency(saldo)}</div>
         <div class="metric-label" style="color: rgba(255,255,255,0.8);">Saldo Real Disponível</div>
+        <div style="color: rgba(255,255,255,0.5); font-size: var(--font-size-xs); margin-top: 4px;">${periodoLabel}</div>
       </div>
 
       <div class="metric-card">
@@ -71,6 +98,9 @@ const MetasPage = {
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="color: var(--text-secondary); font-size: var(--font-size-sm);">Metas/Compras Realizadas</span>
             <strong style="color: var(--color-warning);">${Helpers.formatCurrency(metas_compradas)}</strong>
+          </div>
+          <div style="border-top: 1px solid var(--border-color); padding-top: 8px; margin-top: 4px; font-size: var(--font-size-xs); color: var(--text-tertiary);">
+            ${periodoLabel}
           </div>
         </div>
       </div>

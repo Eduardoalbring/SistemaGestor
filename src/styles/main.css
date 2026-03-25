@@ -645,18 +645,23 @@ body {
 .table-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: var(--spacing-lg);
   border-bottom: 1px solid var(--border-color);
   gap: var(--spacing-md);
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.table-toolbar .search-container {
+  flex-shrink: 0;
 }
 
 .table-filters {
   display: flex;
   gap: var(--spacing-sm);
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .filter-chip {

@@ -742,6 +742,13 @@ class Database {
         + o.mao_de_obra - o.desconto
         - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
       ), 0) as total
+    FROM orcamentos o WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
+    `).get(mesAtual).total;
+
+    const custosMateriaisMes = this.db.prepare(`
+      SELECT COALESCE(SUM(
+        (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+      ), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
 
@@ -756,7 +763,9 @@ class Database {
       faturamentoMateriaisMes,
       // Pega despesas normais (exclui material de orçamento para não duplicar redução no visual)
       custosMes: this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND tipo != 'materiais' AND strftime('%Y-%m', data) = ? AND deletado = 0").get(mesAtual).total,
-      lucroMes,
+      custosMateriaisMes,
+      // lucroMes = faturamento - custo material - despesas diversas (dinheiro que realmente sobra)
+      lucroMes: lucroMes - this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE status = 'pago' AND tipo != 'materiais' AND strftime('%Y-%m', data) = ? AND deletado = 0").get(mesAtual).total,
       lucroTotal,
       orcamentosPorStatus,
       servicosPorStatus
@@ -1244,22 +1253,39 @@ class Database {
     return { success: true };
   }
 
-  getSaldoLivre() {
-    // Lucro Liquido = Faturamento - Custos Diretos dos Itens
-    const lucro_orcamentos = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
-      FROM orcamentos o
-      WHERE o.status = 'aprovado'
-    `).get().total;
+  getSaldoLivre(mes = null) {
+    let lucro_orcamentos, custos_gerais, custos_com_meta;
 
-    // Despesas = TODOS os custos exceto os do tipo 'materiais' gerados pelos orçamentos
-    const custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0").get().total;
-    const custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get().total;
-    
+    if (mes) {
+      // Filtered by specific month
+      lucro_orcamentos = this.db.prepare(`
+        SELECT COALESCE(SUM(
+          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+          + o.mao_de_obra - o.desconto
+          - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        ), 0) as total
+        FROM orcamentos o
+        WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
+      `).get(mes).total;
+
+      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
+      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
+    } else {
+      // All-time (no date filter)
+      lucro_orcamentos = this.db.prepare(`
+        SELECT COALESCE(SUM(
+          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+          + o.mao_de_obra - o.desconto
+          - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
+        ), 0) as total
+        FROM orcamentos o
+        WHERE o.status = 'aprovado'
+      `).get().total;
+
+      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0").get().total;
+      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get().total;
+    }
+
     const saldo = lucro_orcamentos - custos_gerais - custos_com_meta;
 
     return { 

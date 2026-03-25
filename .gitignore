@@ -8,3 +8,6 @@ dist_final_fixed/
 *.db-wal
 test_electron.js
 .env
+.node/
+node_check.txt
+npm_install_log*.txt
