@@ -4,7 +4,7 @@ const path = require('path');
 class Database {
   constructor(userDataPath) {
     try {
-      const dbPath = path.join(userDataPath, 'albrings.db');
+      const dbPath = path.join(userDataPath, 'sistemagestor.db');
       console.log('Iniciando banco de dados em:', dbPath);
       this.db = new SQLite(dbPath);
       this.db.pragma('journal_mode = WAL');
@@ -217,6 +217,22 @@ class Database {
     this.db.close();
   }
 
+  get _sqlReceitaMateriaisOrcamento() {
+    return `(SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)`;
+  }
+
+  get _sqlFaturamentoOrcamento() {
+    return `(${this._sqlReceitaMateriaisOrcamento} + o.mao_de_obra - o.desconto)`;
+  }
+
+  get _sqlCustoMateriaisOrcamento() {
+    return `(SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)`;
+  }
+
+  get _sqlLucroOrcamento() {
+    return `(${this._sqlFaturamentoOrcamento} - ${this._sqlCustoMateriaisOrcamento})`;
+  }
+
   // ============ CLIENTES ============
   listarClientes(filtros = {}) {
     let query = 'SELECT * FROM clientes WHERE 1=1';
@@ -272,7 +288,7 @@ class Database {
   listarOrcamentos(filtros = {}) {
     let query = `
       SELECT o.*, c.nome as cliente_nome,
-        (SELECT COALESCE(SUM(quantidade * valor_unitario), 0) FROM orcamento_itens WHERE orcamento_id = o.id AND comprado_pelo_cliente = 0) as total_itens
+        ${this._sqlFaturamentoOrcamento} as total_itens
       FROM orcamentos o
       LEFT JOIN clientes c ON o.cliente_id = c.id
       WHERE 1=1
@@ -683,17 +699,12 @@ class Database {
     const servicosConcluidos = this.db.prepare("SELECT COUNT(*) as total FROM servicos WHERE status = 'concluido'").get().total;
 
     const faturamentoTotal = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado'
     `).get().total;
 
     const faturamentoMateriaisTotal = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado'
     `).get().total;
 
@@ -707,19 +718,14 @@ class Database {
 
     const mesAtual = new Date().toISOString().slice(0, 7);
     const faturamentoMesTotal = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o 
       WHERE o.status = 'aprovado' 
       AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
 
     const faturamentoMateriaisMes = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o 
       WHERE o.status = 'aprovado' 
       AND strftime('%Y-%m', o.criado_em) = ?
@@ -727,28 +733,18 @@ class Database {
 
     // lucroTotal = Faturamento de Orçamentos - Custo de Itens dos Orçamentos (Global)
     const lucroTotal = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlLucroOrcamento}), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado'
     `).get().total;
 
     // lucroMes = Faturamento do Mes - Custo de Itens do Mês
     const lucroMes = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-        - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlLucroOrcamento}), 0) as total
     FROM orcamentos o WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
 
     const custosMateriaisMes = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlCustoMateriaisOrcamento}), 0) as total
       FROM orcamentos o WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual).total;
 
@@ -807,10 +803,7 @@ class Database {
 
     const faturamentoPorMes = this.db.prepare(`
       SELECT strftime('%Y-%m', o.criado_em) as mes,
-        COALESCE(SUM(
-          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-          + o.mao_de_obra - o.desconto
-        ), 0) as total
+        COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o
       WHERE o.status = 'aprovado'
         AND o.criado_em >= date('now', '-12 months')
@@ -821,9 +814,7 @@ class Database {
 
     const faturamentoMateriaisPorMes = this.db.prepare(`
       SELECT strftime('%Y-%m', o.criado_em) as mes,
-        COALESCE(SUM(
-          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        ), 0) as total
+        COALESCE(SUM(${this._sqlReceitaMateriaisOrcamento}), 0) as total
       FROM orcamentos o
       WHERE o.status = 'aprovado'
         AND o.criado_em >= date('now', '-12 months')
@@ -1096,7 +1087,7 @@ class Database {
         COUNT(*) as qtd,
         SUM(valor) as total
       FROM custos
-      WHERE data >= date('now', '-12 months') AND deletado = 0
+      WHERE data >= date('now', '-12 months') AND status = 'pago' AND deletado = 0
       GROUP BY mes, tipo
       ORDER BY mes DESC
     `).all();
@@ -1106,7 +1097,7 @@ class Database {
     const resumoMesAtual = this.db.prepare(`
       SELECT tipo, SUM(valor) as total, COUNT(*) as qtd
       FROM custos
-      WHERE strftime('%Y-%m', data) = ? AND deletado = 0
+      WHERE strftime('%Y-%m', data) = ? AND status = 'pago' AND deletado = 0
       GROUP BY tipo
     `).all(mesAtual);
 
@@ -1129,10 +1120,7 @@ class Database {
 
     // Faturamento do mês atual (orçamentos aprovados)
     const faturamentoMes = this.db.prepare(`
-      SELECT COALESCE(SUM(
-        (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        + o.mao_de_obra - o.desconto
-      ), 0) as total
+      SELECT COALESCE(SUM(${this._sqlFaturamentoOrcamento}), 0) as total
       FROM orcamentos o
       WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
     `).get(mesAtual);
@@ -1259,31 +1247,23 @@ class Database {
     if (mes) {
       // Filtered by specific month
       lucro_orcamentos = this.db.prepare(`
-        SELECT COALESCE(SUM(
-          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-          + o.mao_de_obra - o.desconto
-          - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        ), 0) as total
+        SELECT COALESCE(SUM(${this._sqlLucroOrcamento}), 0) as total
         FROM orcamentos o
         WHERE o.status = 'aprovado' AND strftime('%Y-%m', o.criado_em) = ?
       `).get(mes).total;
 
-      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
-      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
+      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND status = 'pago' AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
+      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND status = 'pago' AND deletado = 0 AND strftime('%Y-%m', data) = ?").get(mes).total;
     } else {
       // All-time (no date filter)
       lucro_orcamentos = this.db.prepare(`
-        SELECT COALESCE(SUM(
-          (SELECT COALESCE(SUM(oi.quantidade * oi.valor_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-          + o.mao_de_obra - o.desconto
-          - (SELECT COALESCE(SUM(oi.quantidade * oi.preco_custo_unitario), 0) FROM orcamento_itens oi WHERE oi.orcamento_id = o.id AND oi.comprado_pelo_cliente = 0)
-        ), 0) as total
+        SELECT COALESCE(SUM(${this._sqlLucroOrcamento}), 0) as total
         FROM orcamentos o
         WHERE o.status = 'aprovado'
       `).get().total;
 
-      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND deletado = 0").get().total;
-      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND deletado = 0").get().total;
+      custos_gerais = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NULL AND tipo != 'materiais' AND status = 'pago' AND deletado = 0").get().total;
+      custos_com_meta = this.db.prepare("SELECT COALESCE(SUM(valor), 0) as total FROM custos WHERE meta_id IS NOT NULL AND status = 'pago' AND deletado = 0").get().total;
     }
 
     const saldo = lucro_orcamentos - custos_gerais - custos_com_meta;

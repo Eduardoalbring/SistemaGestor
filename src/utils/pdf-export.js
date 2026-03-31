@@ -20,7 +20,7 @@ const PDFExport = {
     doc.setFont("helvetica", "bold");
     doc.setFontSize(28);
     doc.setTextColor(255, 255, 255);
-    doc.text("Albring's", margin, 22);
+    doc.text("SistemaGestor", margin, 22);
     
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);

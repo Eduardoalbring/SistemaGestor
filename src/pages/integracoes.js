@@ -399,7 +399,7 @@ const IntegracoesPage = {
         <body>
           <div class="header">
             <div>
-              <div class="brand">Albring's</div>
+              <div class="brand">SistemaGestor</div>
               <div class="brand-sub">Serviços Elétricos</div>
             </div>
             <div class="doc-info">
@@ -473,7 +473,7 @@ const IntegracoesPage = {
           </div>
 
           <div class="footer">
-            Gerado em ${new Date().toLocaleString('pt-BR')} · Albring's LTDA
+            Gerado em ${new Date().toLocaleString('pt-BR')} · SistemaGestor
           </div>
         </body>
         </html>

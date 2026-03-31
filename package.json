@@ -1,7 +1,7 @@
 {
-  "name": "albrings",
+  "name": "sistemagestor",
   "version": "1.0.1",
-  "description": "Albring's - Gestão para Eletricistas",
+  "description": "SistemaGestor - Gestão para Eletricistas",
   "main": "main.js",
   "scripts": {
     "start": "start.bat",
@@ -9,11 +9,11 @@
     "rebuild": "electron-rebuild",
     "dist": "electron-builder"
   },
-  "author": "Albring's",
+  "author": "SistemaGestor",
   "license": "MIT",
   "build": {
-    "appId": "com.albrings.app",
-    "productName": "Albring's",
+    "appId": "com.sistemagestor.app",
+    "productName": "SistemaGestor",
     "directories": {
       "output": "dist"
     },

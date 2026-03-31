@@ -24,7 +24,7 @@ function createWindow() {
     height: 860,
     minWidth: 1100,
     minHeight: 700,
-    title: 'ElectriPRO',
+    title: 'SistemaGestor',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#FFFFFF',
     webPreferences: {
@@ -217,7 +217,7 @@ ipcMain.handle('google:login', async () => {
       if (code) {
         try {
           await googleService.setTokensFromCode(code);
-          res.end('<h1>Autenticado com sucesso!</h1><p>Você já pode fechar esta aba e voltar para o Albrings App.</p><script>window.close()</script>');
+          res.end('<h1>Autenticado com sucesso!</h1><p>Você já pode fechar esta aba e voltar para o SistemaGestor.</p><script>window.close()</script>');
           authServer.close();
           resolve(true); // Retorna sucesso para o Front-end!
         } catch (e) {

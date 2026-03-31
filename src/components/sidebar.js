@@ -23,7 +23,7 @@ const Sidebar = {
     const sidebar = document.getElementById('sidebar');
     sidebar.innerHTML = `
       <div class="sidebar-brand">
-        <h1>Albring's</h1>
+        <h1>SistemaGestor</h1>
       </div>
       <nav class="sidebar-nav">
         ${this.pages.map(page => `
